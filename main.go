@@ -148,26 +148,6 @@ func (r GiteaRepository) GetStarCount() uint {
 	return r.StarCount
 }
 
-// custom marshaller for CustomBool:
-// truthy values are "true" and if a json object: "v[0] = '{'"
-// e.g. json_field: true or json_field: { ...}
-
-type CustomBool bool
-
-// UnmarshalJSON implements the json.Unmarshaler interface for CustomBool
-func (b *CustomBool) UnmarshalJSON(data []byte) error {
-	// Define a temporary variable for unmarshaling
-	if string(data) == "true" || string(data)[0] == '{' {
-		fmt.Println("Is fork.")
-		*b = true
-		return nil
-	} else {
-		fmt.Println("Is not fork.")
-		*b = false
-		return nil
-	}
-}
-
 // * SourceHut struct
 type SourceHutGitRepository struct {
 	Id    int64 `json:"id"`
