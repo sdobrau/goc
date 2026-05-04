@@ -326,7 +326,7 @@ func checkFileReadable(f string) (bool, error) {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "usage: goc [flags]\n")
+	fmt.Fprintf(os.Stderr, "usage: goc -f FORGE -u USER|-o ORGANISATION|-F FILE\n")
 	fmt.Fprintf(os.Stderr, "Flags:\n")
 	flag.PrintDefaults()
 	os.Exit(2)

@@ -13,7 +13,7 @@ go install
 # Usage:
 
 ```
-usage: goc [flags]
+usage: goc -f FORGE -u USER|-o ORGANISATION|-F FILE
 Flags:
   -F string
         File to fetch cloning configuration from
