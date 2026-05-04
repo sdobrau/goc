@@ -11,6 +11,8 @@ import (
 	"os/exec"
 )
 
+// * helpers
+
 // Compares two CloneConfigs.
 func equalConfigs(a, b CloneConfig) bool {
 	return a.Forge == b.Forge &&
@@ -21,7 +23,6 @@ func equalConfigs(a, b CloneConfig) bool {
 // * the test functions
 
 // * test functions for helper functions
-
 func TestCheckDir(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -94,7 +95,6 @@ func TestCheckDir(t *testing.T) {
 }
 
 // * test functions for core functionality
-
 func TestHandleOptionErrors(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -880,6 +880,7 @@ func TestProcessRepositories(t *testing.T) {
 		ignoreForks  bool
 		starsGreater uint
 		threads      uint
+		expectedCloned int // -1 means skip count check
 	}{
 		{
 			name: "Clone non-fork repos with sufficient stars",
@@ -923,6 +924,48 @@ func TestProcessRepositories(t *testing.T) {
 			starsGreater: 0,
 			threads:      20,
 		},
+		{
+			name: "Clone all repositories and verify count for small user (sdobrau, 11 repositories)",
+			repos: func() []Repository {
+				repos, err := collectGitHubRepositories(
+					"https://api.github.com/users/sdobrau/repos?per_page=100", "")
+				if err != nil {
+					return []Repository{}
+				}
+				var result []Repository
+				for _, r := range repos {
+					result = append(result, r)
+				}
+				return result
+			}(),
+			forge:          "github",
+			dirToAppend:    "sdobrau",
+			ignoreForks:    false,
+			starsGreater:   0,
+			threads:        20,
+			expectedCloned: 11,
+		},
+		{
+			name: "Clone all repositories and verify count for medium user (tj, 296 repositories)",
+			repos: func() []Repository {
+				repos, err := collectGitHubRepositories(
+					"https://api.github.com/users/tj/repos?per_page=100", "")
+				if err != nil {
+					return []Repository{}
+				}
+				var result []Repository
+				for _, r := range repos {
+					result = append(result, r)
+				}
+				return result
+			}(),
+			forge:          "github",
+			dirToAppend:    "tj",
+			ignoreForks:    false,
+			starsGreater:   0,
+			threads:        20,
+			expectedCloned: 296,
+		},
 	}
 
 	for _, test := range tests {
@@ -938,6 +981,155 @@ func TestProcessRepositories(t *testing.T) {
 
 			// should not panic
 			processRepositories(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.threads)
+
+			if test.expectedCloned >= 0 {
+				repoBaseDir := filepath.Join(dir, test.forge, test.dirToAppend)
+				entries, err := os.ReadDir(repoBaseDir)
+				if err != nil && test.expectedCloned > 0 {
+					t.Fatalf("Failed to read repo dir: %v", err)
+				}
+
+				clonedCount := 0
+				for _, entry := range entries {
+					if entry.IsDir() {
+						gitDir := filepath.Join(repoBaseDir, entry.Name(), ".git")
+						if _, err := os.Stat(gitDir); err == nil {
+							clonedCount++
+						}
+					}
+				}
+
+				if clonedCount < test.expectedCloned {
+					t.Errorf("Expected at least %d cloned repos, got %d", test.expectedCloned, clonedCount)
+				}
+			}
+		})
+	}
+}
+
+func TestCloneRepository(t *testing.T) {
+	tests := []struct {
+		name        string
+		repo        Repository
+		expectClone bool
+	}{
+		{
+			name:        "Clone a small valid repository",
+			repo:        GitHubRepository{Name: "hello-world", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
+			expectClone: true,
+		},
+		{
+			name:        "Clone a non-existent repository",
+			repo:        GitHubRepository{Name: "nonexistent", Url: "https://github.com/thisuserdefinitelydoesnotexist99999/nonexistent", Fork: false, StargazersCount: 0},
+			expectClone: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "clonerepo-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			dir := filepath.Join(tmpDir, test.repo.GetName())
+			cloneRepository(test.repo, dir)
+
+			_, err = os.Stat(filepath.Join(dir, ".git"))
+			cloned := err == nil
+
+			if cloned != test.expectClone {
+				t.Errorf("Expected clone=%v, got clone=%v", test.expectClone, cloned)
+			}
+		})
+	}
+}
+
+func TestPullRepository(t *testing.T) {
+	tests := []struct {
+		name string
+		repo Repository
+	}{
+		{
+			name: "Pull an already cloned repository",
+			repo: GitHubRepository{Name: "Hello-World", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "pullrepo-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			dir := filepath.Join(tmpDir, test.repo.GetName())
+
+			// clone first
+			cloneRepository(test.repo, dir)
+
+			_, err = os.Stat(filepath.Join(dir, ".git"))
+			if err != nil {
+				t.Fatalf("Clone failed, cannot test pull: %v", err)
+			}
+
+			// should not panic or error
+			pullRepository(test.repo, dir)
+		})
+	}
+}
+
+func TestCloneOrPullRepositoryAsync(t *testing.T) {
+	tests := []struct {
+		name         string
+		repo         Repository
+		preClone     bool
+		expectDotGit bool
+	}{
+		{
+			name:         "Async clone of a new repository",
+			repo:         GitHubRepository{Name: "Hello-World", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
+			preClone:     false,
+			expectDotGit: true,
+		},
+		{
+			name:         "Async pull of an already cloned repository",
+			repo:         GitHubRepository{Name: "Hello-World", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
+			preClone:     true,
+			expectDotGit: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tmpDir, err := os.MkdirTemp("", "asyncrepo-*")
+			if err != nil {
+				t.Fatalf("Failed to create temp dir: %v", err)
+			}
+			defer os.RemoveAll(tmpDir)
+
+			dir := filepath.Join(tmpDir, test.repo.GetName())
+
+			if test.preClone {
+				cloneRepository(test.repo, dir)
+				_, err = os.Stat(filepath.Join(dir, ".git"))
+				if err != nil {
+					t.Fatalf("Pre-clone failed: %v", err)
+				}
+			}
+
+			var wg sync.WaitGroup
+			cloneOrPullRepositoryAsync(dir, test.repo, &wg)
+			wg.Wait()
+
+			_, err = os.Stat(filepath.Join(dir, ".git"))
+			hasDotGit := err == nil
+
+			if hasDotGit != test.expectDotGit {
+				t.Errorf("Expected .git=%v, got .git=%v", test.expectDotGit, hasDotGit)
+			}
 		})
 	}
 }
