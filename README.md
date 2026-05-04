@@ -45,6 +45,7 @@ Features:
   * [x] GitHub
   * [x] GitLab (including instances)
   * [x] Gitea (including instances)
+* [x] Tokens (taken from envvars `GITHUB|GITLAB|GITEA_TOKEN` or provided per-user/organisation)
 * [x] Parallelism: as many as N concurrent git processes running (configurable)
 * [x] Clone users or groups, organisations' repositories
 * [x] YAML file for declaring what to clone, and 
