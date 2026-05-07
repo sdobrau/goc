@@ -438,7 +438,7 @@ func TestProcessUser(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			url, dir := processUser(test.forge, test.user, test.instanceUrl)
+			url, dir, _ := processUser(test.forge, test.user, test.instanceUrl)
 
 			if url != test.expectedUrl {
 				t.Errorf("Expected URL '%s', got '%s'", test.expectedUrl, url)
@@ -503,7 +503,7 @@ func TestProcessOrganisation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			url, dir := processOrganisation(test.forge, test.org, test.instanceUrl)
+			url, dir, _ := processOrganisation(test.forge, test.org, test.instanceUrl)
 
 			if url != test.expectedUrl {
 				t.Errorf("Expected URL '%s', got '%s'", test.expectedUrl, url)
@@ -974,6 +974,7 @@ func TestProcessRepositories(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
+			// clear when calling function exits
 			defer os.RemoveAll(tmpDir)
 
 			dir := tmpDir + "/"
@@ -1076,7 +1077,7 @@ func TestPullRepository(t *testing.T) {
 			}
 
 			// should not panic or error
-			pullRepository(test.repo, dir)
+			pullRepository(dir)
 		})
 	}
 }
@@ -1133,3 +1134,4 @@ func TestCloneOrPullRepositoryAsync(t *testing.T) {
 		})
 	}
 }
+

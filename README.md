@@ -41,17 +41,16 @@ Flags:
 
 Features:
 
+* [x] Clone users or groups, organisations' repositories
+* [x] Parallelism: as many as N concurrent git processes running
 * [x] Forges supported:
   * [x] GitHub
   * [x] GitLab (including instances)
   * [x] Gitea (including instances)
 * [x] Tokens (taken from envvars `GITHUB|GITLAB|GITEA_TOKEN` or provided per-user/organisation)
-* [x] Parallelism: as many as N concurrent git processes running (configurable)
-* [x] Clone users or groups, organisations' repositories
-* [x] YAML file for declaring what to clone, and 
-* [x] Per-user/organisation options
-* [x] Ignore forks
-* [x] Ignore with stars lower than a specific amount
+* [x] YAML file for declaring what and how to clone:
+  * [x] Ignore forks
+  * [x] Ignore with stars lower than a specific amount
 
 # TODOs
 

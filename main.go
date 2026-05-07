@@ -200,7 +200,6 @@ func smallSleep() {
 	// we need to convert the random int into a time.Duration
 	randDelay := time.Duration(int(rand.Intn(50) + 80))
 	duration := randDelay * time.Millisecond
-	fmt.Printf("Sleeping for %d milliseconds\n", randDelay)
 	time.Sleep(duration)
 }
 
@@ -225,26 +224,22 @@ func checkGitProcessNr(threads uint) {
 		gitProcessNrStr = re.ReplaceAllString(gitProcessNrStr, "")
 
 		gitProcessNr, _ := strconv.Atoi(gitProcessNrStr)
-		fmt.Printf("ps aux command output is %s\n", out.String())
 		if uint(gitProcessNr) <= threads {
-			fmt.Printf("gitProcess nr %d is less than %d. Breaking out of the loop\n", gitProcessNr, threads)
 			break
 		} else if uint(gitProcessNr) > threads {
-			fmt.Printf("Too many concurrent git requests: %d. Sleeping for a bit\n", gitProcessNr)
+			
 			bigSleep()
 		}
 	}
-	fmt.Println("Exited out of the loop")
 }
 
-func checkSpace() {
+func checkSpace() error {
 	path := "." // current fs
 
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(path, &stat)
 	if err != nil {
-		fmt.Printf("Error getting file system info: %v\n", err)
-		return
+		return fmt.Errorf("Error with space: %v\n", err)
 	}
 
 	// Calculate the remaining space
@@ -253,6 +248,7 @@ func checkSpace() {
 	if remainingSpace == 0 {
 		panic("No more free disk space")
 	}
+	return nil
 }
 
 // checkDir checks if a directory exists and is writable by the current user
@@ -260,7 +256,7 @@ func checkDir(dir string) (bool, error) {
 	// Check if the directory exists
 	info, err := os.Stat(dir)
 	if os.IsNotExist(err) {
-		return false, fmt.Errorf("%s does not exist", dir) // Directory does not exist
+		return false, fmt.Errorf("%s does not exist\n", dir) // Directory does not exist
 	}
 	if err != nil {
 		return false, err // Other error
@@ -268,14 +264,14 @@ func checkDir(dir string) (bool, error) {
 
 	// Check if it's a directory
 	if !info.IsDir() {
-		return false, fmt.Errorf("%s is not a directory", dir)
+		return false, fmt.Errorf("%s is not a directory\n", dir)
 	}
 
 	// Check if the directory is writable
 	testFile := filepath.Join(dir, "testfile")
 	file, err := os.OpenFile(testFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
-		return false, fmt.Errorf("%s is not writable", dir) // Not writable
+		return false, fmt.Errorf("%s is not writable\n", dir) // Not writable
 	}
 	file.Close()
 	
@@ -289,7 +285,7 @@ func checkFileReadable(f string) (bool, error) {
 	// Check if the file exists
 	_, err := os.Stat(f)
 	if os.IsNotExist(err) {
-		return false, fmt.Errorf("%s does not exist", f) // Directory does not exist
+		return false, fmt.Errorf("%s does not exist\n", f) // Directory does not exist
 	}
 	if err != nil {
 		return false, err // Other error
@@ -298,7 +294,7 @@ func checkFileReadable(f string) (bool, error) {
 	// Check if the directory is readable
 	file, err := os.OpenFile(f, os.O_RDONLY, 0666)
 	if err != nil {
-		return false, fmt.Errorf("%v is not readable", file) // Not writable
+		return false, fmt.Errorf("%v is not readable\n", file) // Not writable
 	}
 	file.Close()
 
@@ -309,7 +305,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "usage: goc -f FORGE -u USER|-o ORGANISATION|-F FILE\n")
 	fmt.Fprintf(os.Stderr, "Flags:\n")
 	flag.PrintDefaults()
-	os.Exit(2)
+	os.Exit(1)
 }
 
 func handleSigInt(wg *sync.WaitGroup) {
@@ -327,12 +323,11 @@ func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, 
 	}
 	for i := 1; endOfPaginatedRepos == false ; i++ { // can we do this more idiomatically ?
 		var repositoriesStore []GitHubRepository
-		fmt.Printf("Fetching from page %d\n", i)
 
 		// Create a new HTTP request
 		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
 		if err != nil {
-			return nil, fmt.Errorf("Error creating request: %v", err)
+			return nil, fmt.Errorf("Error creating request: %v\n", err)
 		}
 
 		// Set the Authorization header with the token
@@ -342,36 +337,35 @@ func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, 
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("Error making request: %v", err)
+			return nil, fmt.Errorf("Error making request: %v\n", err)
 		}
 		defer resp.Body.Close()
 		
 		// Read the response
 
 		if resp.StatusCode == 401 {
-			return nil, fmt.Errorf("Status code 401, token is invalid")
+			return nil, fmt.Errorf("Status code 401, token is invalid\n")
 		}
-	
+		
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Error: received status code %d", resp.StatusCode)
+			return nil, fmt.Errorf("Error: received status code %d\n", resp.StatusCode)
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("Error reading response body: %s", err)
+			return nil, fmt.Errorf("Error reading response body: %s\n", err)
 		}	
 		err = json.Unmarshal(body, &repositoriesStore)
 		if err != nil { 
-			return nil, fmt.Errorf("Error unmarshaling JSON: %v", err)
+			return nil, fmt.Errorf("Error unmarshaling JSON: %v\n", err)
 		}
 		if len(repositoriesStore) != 0 {
 			// unpack 
 			completeRepositories = append(completeRepositories,repositoriesStore...)
 		} else if len(repositoriesStore) == 0 {
 			if i == 1 {
-				return nil, fmt.Errorf("No repositories found at URL %s", url)
+				return nil, fmt.Errorf("No repositories found at URL %s\n", url)
 			} else if i >= 2 {
 				endOfPaginatedRepos = true
-				fmt.Println("End of paginated repos. Collecting")
 			}
 		}
 	}
@@ -388,12 +382,11 @@ func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, 
 	}
 	for i := 1; endOfPaginatedRepos == false ; i++ { // loop until reach end of pages
 		var repositoriesStore []GitLabRepository
-		fmt.Printf("Fetching from page %d\n", i)
 
 		// Create a new HTTP request
 		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
 		if err != nil {
-			return nil, fmt.Errorf("Error creating request: %v", err)
+			return nil, fmt.Errorf("Error creating request: %v\n", err)
 		}
 
 		// Set the Authorization header with the token
@@ -403,31 +396,29 @@ func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, 
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("Error making request: %v", err)
+			return nil, fmt.Errorf("Error making request: %v\n", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Error: received status code %d", resp.StatusCode)
+			return nil, fmt.Errorf("Error: received status code %d\n", resp.StatusCode)
 		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("Error reading response body: %s", err)
+			return nil, fmt.Errorf("Error reading response body: %s\n", err)
 		}
-		fmt.Printf("Body is %s", body)
 		err = json.Unmarshal(body, &repositoriesStore)
 		if err != nil { 
-			return nil, fmt.Errorf("Error unmarshaling JSON: %v", err)
+			return nil, fmt.Errorf("Error unmarshaling JSON: %v\n", err)
 		}
 		if len(repositoriesStore) != 0 {
 			// unpack 
 			completeRepositories = append(completeRepositories,repositoriesStore...)
 		} else if len(repositoriesStore) == 0 {
 			if i == 1 {
-				return nil, fmt.Errorf("No repositories found at URL %s", url)
+				return nil, fmt.Errorf("No repositories found at URL %s\n", url)
 			} else if i >= 2 {
 				endOfPaginatedRepos = true
-				fmt.Println("End of paginated repos. Collecting")
 			}
 		}
 	}
@@ -444,11 +435,10 @@ func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, er
 	}
 	for i := 1; endOfPaginatedRepos == false ; i++ { // can we do this more idiomatically ?
 		var repositoriesStore []GiteaRepository
-		fmt.Printf("Fetching from page %d\n", i)
 		// Create a new HTTP request
 		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
 		if err != nil {
-			return nil, fmt.Errorf("Error creating request: %v", err)
+			return nil, fmt.Errorf("Error creating request: %v\n", err)
 		}
 
 		// Set the Authorization header with the token
@@ -458,27 +448,26 @@ func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, er
 		client := &http.Client{}
 		resp, err := client.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("Error making request: %v", err)
+			return nil, fmt.Errorf("Error making request: %v\n", err)
 		}
 		defer resp.Body.Close()
 		
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("Error reading response body: %s", err)
+			return nil, fmt.Errorf("Error reading response body: %s\n", err)
 		}	
 		err = json.Unmarshal(body, &repositoriesStore)
 		if err != nil { 
-			return nil, fmt.Errorf("Error unmarshaling JSON: %v", err)
+			return nil, fmt.Errorf("Error unmarshaling JSON: %v\n", err)
 		}
 		if len(repositoriesStore) != 0 {
 			// unpack 
 			completeRepositories = append(completeRepositories,repositoriesStore...)
 		} else if len(repositoriesStore) == 0 {
 			if i == 1 {
-				return nil, fmt.Errorf("No repositories found at URL %s", url)
+				return nil, fmt.Errorf("No repositories found at URL %s\n", url)
 			} else if i >= 2 {
 				endOfPaginatedRepos = true
-				fmt.Println("End of paginated repos. Collecting")
 			}
 		}
 	}
@@ -538,7 +527,7 @@ func querySourceHutRepositoriesPage(cursor SourceHutCursor, apiUsername string, 
 
 	if res.StatusCode != 200 {
 		body, _:= io.ReadAll(io.LimitReader(res.Body, 200))
-		return nil, "", fmt.Errorf("Unexpected response code %d from SourceHut: %q", res.StatusCode, string(body))
+		return nil, "", fmt.Errorf("Unexpected response code %d from SourceHut: %q\n", res.StatusCode, string(body))
 	}
 
 	// result from query
@@ -560,7 +549,7 @@ func querySourceHutRepositoriesPage(cursor SourceHutCursor, apiUsername string, 
 		return nil, "", err
 	}
 	if response.Errors != nil {
-		return nil, "", fmt.Errorf("SourceHut API returned errors while listing repositories: %s", string(response.Errors))
+		return nil, "", fmt.Errorf("SourceHut API returned errors while listing repositories: %s\n", string(response.Errors))
 	}
 
 	repos, err := filterSourceHutRepositories(response.Data.Repositories.Results, apiUsername)
@@ -590,7 +579,7 @@ func collectSourceHutGitRepositories(user string, token string) ([]SourceHutGitR
 		cursor = nextCursor
 		completeRepositories = append(completeRepositories, reposPage...)
 		// stop looping when we hit an empty cursor, no more pages
-		fmt.Println("Hit last page of SourceHut repos. Breaking out of the loop")
+		
 		if cursor == "" {
 			break
 		}
@@ -599,34 +588,37 @@ func collectSourceHutGitRepositories(user string, token string) ([]SourceHutGitR
 	if len(completeRepositories) != 0 {
 		return completeRepositories, nil
 	} else {
-		return nil, fmt.Errorf("No repositories found for user %s", user)
+		return nil, fmt.Errorf("No repositories found for user %s\n", user)
 	}
 }
 
-func cloneRepository(repo Repository, dir string) {
+func cloneRepository(repo Repository, dir string) error {
 	cmd := exec.Command("git", "clone", repo.GetUrl(), dir)
-	fmt.Println("No .git found, cloning")
 	cmd.Env = []string{"GIT_TERMINAL_PROMPT=0"}
 	err := cmd.Start()
 	if err != nil {
-		fmt.Printf("Error running git clone: %v", err)
-		fmt.Printf("Path: %s, Args: %s", cmd.Path, cmd.Args)
+		return fmt.Errorf("Error running git clone: %v", err)
 	}
-	cmd.Wait()
-	fmt.Printf("Finished cloning repo %s\n", repo.GetName())
+	err = cmd.Wait()
+	if err != nil {
+		return fmt.Errorf("Error cloning repository: %v\n", err)
+	}
+	return nil
 }
 
-func pullRepository(repo Repository, dir string) {
-	fmt.Printf("Git found. Pulling repo %s\n", repo.GetName())
+func pullRepository(dir string) error {
 	// Execute the Symbol’s value as variable is void: pgrep command to find git processes
 	cmd := exec.Command("git", "pull")
 	cmd.Dir = dir
 	err := cmd.Start()
 	if err != nil {
-		fmt.Printf("Error running git pull: %v", err)
+		return fmt.Errorf("Error running git pull: %v", err)
 	}
-	cmd.Wait()
-	fmt.Println("Pulling finished")
+	err = cmd.Wait()
+	if err != nil {
+		return fmt.Errorf("Error pulling repository: %v\n", err)
+	}
+	return nil
 }
 
 // * General functions
@@ -638,9 +630,15 @@ func cloneOrPullRepositoryAsync(dir string, repo Repository, wg *sync.WaitGroup)
 		gitDirectoryExists, _ := checkDir(dir + "/.git")
 		
 		if gitDirectoryExists == false { // if no existing .git in that dir then clone
-			cloneRepository(repo, dir)
+			err := cloneRepository(repo, dir)
+			if err != nil {
+				log.Fatalf("Error cloning repository. Quitting: %v", err)
+			}
 		} else { 
-			pullRepository(repo, dir) // if directory exists then pull
+			err := pullRepository(dir) // if directory exists then pull
+			if err != nil {
+				log.Fatalf("Error pulling repository. Quitting: %v", err)
+			}
 		}
 	}(repo)
 }
@@ -654,8 +652,7 @@ func configsToMap(configs []CloneConfig) map[string]CloneConfig {
 }
 
 // * logic functions
-func processUser(forge string, user string, instanceUrl string) (url string, dirToAppend string) {
-	fmt.Printf("Working for user %s", user)
+func processUser(forge string, user string, instanceUrl string) (url string, dirToAppend string, err error) {
 	switch {
 	case user != "" && forge == "github":
 		url = "https://api.github.com/users/" + user + "/repos?per_page=100"
@@ -673,14 +670,14 @@ func processUser(forge string, user string, instanceUrl string) (url string, dir
 		url = "https://gitea.com/api/v1/users/" + user + "/repos?per_page=100"
 		dirToAppend = user
 	case user != "" && (forge != "github" && forge != "gitlab" && forge != "gitea"):
-		fmt.Println("Forge does not exist")
+		fmt.Printf("Forge does not exist")
 		usage()
 		os.Exit(1)
 	}
-	return url, dirToAppend
+	return url, dirToAppend, nil
 }
 
-func processOrganisation(forge string, organisation string, instanceUrl string) (url string, dirToAppend string) {
+func processOrganisation(forge string, organisation string, instanceUrl string) (url string, dirToAppend string, err error) {
 	switch {		
 	case organisation != "" && forge == "github":
 		url = "https://api.github.com/orgs/" +  organisation + "/repos?per_page=100"
@@ -698,11 +695,11 @@ func processOrganisation(forge string, organisation string, instanceUrl string) 
 		url = "https://gitea.com/api/v1/orgs/" + organisation + "/repos?per_page=100"
 		dirToAppend = organisation
 	case organisation != "" && (forge != "github" && forge != "gitlab" && forge != "gitea"):
-		fmt.Println("Forge does not exist")
+		log.Fatalf("Forge does not exist")
 		usage()
 		os.Exit(1)
 	}
-	return url, dirToAppend
+	return url, dirToAppend, nil
 }
 
 func processCloneFile(cloneFile string) (map[string]CloneConfig, error) {
@@ -712,18 +709,18 @@ func processCloneFile(cloneFile string) (map[string]CloneConfig, error) {
 	}
 	isReadable, err := checkFileReadable(cloneFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("Error parsing yaml, File is not readable error: %v", err)
+		return nil, fmt.Errorf("Error parsing yaml, File is not readable error: %v\n", err)
 	} else if isReadable {
 		data, err := os.ReadFile(cloneFilePath)
 		if err != nil {
 			
-			return nil, fmt.Errorf("Error reading file: %v", err)
+			return nil, fmt.Errorf("Error reading file: %v\n", err)
 		}
 
 		var cloneConfigs []CloneConfig
 		err = yaml.Unmarshal(data, &cloneConfigs)
 		if err != nil {
-			return nil, fmt.Errorf("Error unmarshaling the YAML: %v", err)
+			return nil, fmt.Errorf("Error unmarshaling the YAML: %v\n", err)
 		}
 		// populate the configmap with appropriate values
 		cloneConfigMap := configsToMap(cloneConfigs)
@@ -739,16 +736,16 @@ func processForgeUrls(forge string, user string, url string, a_token, srhtToken 
 	case forge == "github":
 		repositories, err := collectGitHubRepositories(url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting GitHub repositories: %v", err)
+			return nil, fmt.Errorf("Error collecting GitHub repositories: %v\n", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
-			fmt.Printf("Repo name is %s Repo URL is %s", repo.GetName(), repo.GetUrl())
+			
 		}
 	case forge == "gitlab":
 		repositories, err := collectGitLabRepositories(url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting GitLab repositories: %v", err)
+			return nil, fmt.Errorf("Error collecting GitLab repositories: %v\n", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
@@ -756,7 +753,7 @@ func processForgeUrls(forge string, user string, url string, a_token, srhtToken 
 	case forge == "gitea":
 		repositories, err := collectGiteaRepositories(url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting Gitea repositories: %v", err)
+			return nil, fmt.Errorf("Error collecting Gitea repositories: %v\n", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
@@ -764,7 +761,7 @@ func processForgeUrls(forge string, user string, url string, a_token, srhtToken 
 	case forge == "sourcehut" && srhtToken != "":
 		repositories, err := collectSourceHutGitRepositories(user, srhtToken)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting Gitea repositories: %v", err)
+			return nil, fmt.Errorf("Error collecting Gitea repositories: %v\n", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
@@ -781,22 +778,18 @@ func processRepositories(collectedRepositories []Repository, forge string, dir s
 		// can clone?
 		if ignoreForks == true && repository.IsFork() {
 			canClone = false
-			fmt.Println("ignoreForks specified and is fork. Ignoring")
 		} else if repository.GetStarCount() >= starsGreater {
 			canClone = true
 		} else if repository.GetStarCount() < starsGreater {
-			fmt.Printf("Stars less than %d. Ignoring %s\n", starsGreater, repository.GetName())
 			canClone = false
 		}
 		
 		repoDir := dir + forge + "/" + dirToAppend + "/" + repository.GetName()
-		fmt.Printf("Cloning to %s\n", repoDir)
 		
 		// TODO: why is this needed?
 		// empty directory "abo-abo" alongside "github"
 		// os.Remove(dir + dirToAppend)
 		if canClone {
-			fmt.Printf("Is eligible for cloning.\n")
 			// we don't want to hit the servers with
 			// simultaneous requests, so we space them out
 			// across a small random interval
@@ -807,7 +800,6 @@ func processRepositories(collectedRepositories []Repository, forge string, dir s
 			repositoriesFetched += 1
 		}
 	}
-	fmt.Printf("Waiting for goroutines to finish\n")
 	wg.Wait()
 	fmt.Printf("Finished fetching %d repos to %s\n", repositoriesFetched, dirToAppend)
 }
@@ -815,23 +807,23 @@ func processRepositories(collectedRepositories []Repository, forge string, dir s
 func handleOptionErrors(forge string, user string, organisation string, token string, cloneFile string) {
 	switch {
 	case cloneFile != "" && (user != "" || organisation != ""):
-		fmt.Println("Please specify only one of: -F or -u|-o")
+		fmt.Fprintf(os.Stderr, "Please specify only one of: -F or -u|-o")
 		usage()
 		os.Exit(1)
 	case forge == "" && cloneFile == "":
-		fmt.Println("Please specify a forge with -f")
+		fmt.Fprintf(os.Stderr, "Please specify a forge with -f")
 		usage()
 		os.Exit(1)		
 	case user != "" && organisation != "":
-		fmt.Println("Don't use both -u and -o")
+		fmt.Fprintf(os.Stderr, "Don't use both -u and -o")
 		usage()
 		os.Exit(1)		
 	case forge == "sourcehut" && token == "":
-		fmt.Println("OAuth 2 token required for using the SourceHut API")
+		fmt.Fprintf(os.Stderr, "OAuth 2 token required for using the SourceHut API")
 		usage()
 		os.Exit(1)	 
 	case user == "" && organisation == "" && cloneFile == "":
-		fmt.Println("Insert a user with -u or organisation with -o or clone file with -F")
+		fmt.Fprintf(os.Stderr, "Insert a user with -u or organisation with -o or clone file with -F")
 		usage()
 		os.Exit(1)
 	// case starsGreater < 0:
@@ -840,7 +832,7 @@ func handleOptionErrors(forge string, user string, organisation string, token st
 	// 	os.Exit(1)
 		
 	case forge == "sourcehut" && token == "":
-		fmt.Println("OAuth 2 token required for using the SourceHut API")
+		fmt.Fprintf(os.Stderr, "OAuth 2 token required for using the SourceHut API")
 		usage()
 		os.Exit(1)
 	}
@@ -865,11 +857,11 @@ func main() {
 
 	defer func() {
 		if r := recover(); r != nil {
-		        fmt.Println("Recovered from panic")
+			fmt.Printf("Recovered from panic\n")
 			os.Exit(1) // This will handle the panic
 		}
 	}()
-	
+
 	// * handler function for SIGINT
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT)
@@ -885,7 +877,7 @@ func main() {
 	if rootDir != "" {
 		dirExistsAndIsWritable, err := checkDir(rootDir)
 		if !dirExistsAndIsWritable {
-			log.Fatalf("Error with directory: %v", err)
+			log.Fatalf("Error with directory: %v\n", err)
 		}
 	}
 
@@ -901,20 +893,26 @@ func main() {
 		for forge := range cloneConfigMap {
 			for _, user := range cloneConfigMap[forge].Users {
 
-				url, dirToAppend := processUser(forge, user.Name, user.InstanceUrl)
-
+				fmt.Printf("Processing user %s from forge %s\n", user.Name, forge)
+				url, dirToAppend, err := processUser(forge, user.Name, user.InstanceUrl)
+				if err != nil {
+					log.Fatalf("Error processing user %s: %v\n", user.Name, err)
+				}
 				os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 				// call API
 				collectedRepositories, err := processForgeUrls(forge, user.Name, url, user.Token, srhtToken)
 				if err != nil {
-					log.Fatalf("Error processing Forge URLs: %v", err)
+					log.Fatalf("Error processing Forge URL %s: %v", url, err)
 				}
 				processRepositories(collectedRepositories, forge, rootDir, dirToAppend, user.IgnoreForks, user.StarsGreater, &wg, threads)
 			}
 			
 			// now do the same but for organisations
 			for _, organisation := range cloneConfigMap[forge].Organisations {
-				url, dirToAppend := processOrganisation(forge, organisation.Name, organisation.InstanceUrl)
+				url, dirToAppend, err := processOrganisation(forge, organisation.Name, organisation.InstanceUrl)
+				if err != nil {
+					log.Fatalf("Error processing organisation: %v", err)
+				}
 				os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 				
 				collectedRepositories, err := processForgeUrls(forge, user, url, organisation.Token, srhtToken)
@@ -925,7 +923,10 @@ func main() {
 			}
 		}
 	case user != "" && cloneFile == "":
-		url, dirToAppend := processUser(forge, user, instanceUrl)
+		url, dirToAppend, err := processUser(forge, user, instanceUrl)
+		if err != nil {
+			log.Fatalf("Error processing user %s: %v", user, err)
+		}
 		os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 
 		// call API
@@ -937,7 +938,10 @@ func main() {
 		
 	case organisation != "" && cloneFile == "":
 		// one-element list
-		url, dirToAppend := processOrganisation(forge, organisation, instanceUrl)
+		url, dirToAppend, err := processOrganisation(forge, organisation, instanceUrl)
+		if err != nil {
+			log.Fatalf("Error processing organisation: %v", err)
+		}
 		os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 
 		// call API
