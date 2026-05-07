@@ -581,7 +581,7 @@ func configsToMap(configs []CloneConfig) map[string]CloneConfig {
 }
 
 // * logic functions
-func processUser(forge string, user string, instanceUrl string) (url string, dirToAppend string, err error) {
+func retrieveReposUrlFromUser(forge string, user string, instanceUrl string) (url string, dirToAppend string, err error) {
 	switch {
 	case user != "" && forge == "github":
 		url = "https://api.github.com/users/" + user + "/repos?per_page=100"
@@ -606,7 +606,7 @@ func processUser(forge string, user string, instanceUrl string) (url string, dir
 	return url, dirToAppend, nil
 }
 
-func processOrganisation(forge string, organisation string, instanceUrl string) (url string, dirToAppend string, err error) {
+func retrieveReposUrlFromOrganisation(forge string, organisation string, instanceUrl string) (url string, dirToAppend string, err error) {
 	switch {		
 	case organisation != "" && forge == "github":
 		url = "https://api.github.com/orgs/" +  organisation + "/repos?per_page=100"
@@ -659,7 +659,7 @@ func processCloneFile(cloneFile string) (map[string]CloneConfig, error) {
 	return nil, err // ?
 }
 
-func processForgeUrls(forge string, user string, url string, a_token, srhtToken string) ([]Repository, error) {
+func retrieveRepositoriesFromForgeUrl(forge string, user string, url string, a_token, srhtToken string) ([]Repository, error) {
 	var collectedRepositories []Repository
 	switch {
 	case forge == "github":
@@ -699,7 +699,7 @@ func processForgeUrls(forge string, user string, url string, a_token, srhtToken 
 	return collectedRepositories, nil
 }
 
-func processRepositories(collectedRepositories []Repository, forge string, dir string, dirToAppend string, ignoreForks bool, starsGreater uint, wg *sync.WaitGroup, threads uint) () {
+func cloneOrPullRepositoryList(collectedRepositories []Repository, forge string, dir string, dirToAppend string, ignoreForks bool, starsGreater uint, wg *sync.WaitGroup, threads uint) () {
 	repositoriesFetched := 0
 	// * the cloning code 
 	for _, repository := range collectedRepositories {
@@ -823,61 +823,61 @@ func main() {
 			for _, user := range cloneConfigMap[forge].Users {
 
 				fmt.Printf("Processing user %s from forge %s\n", user.Name, forge)
-				url, dirToAppend, err := processUser(forge, user.Name, user.InstanceUrl)
+				url, dirToAppend, err := retrieveReposUrlFromUser(forge, user.Name, user.InstanceUrl)
 				if err != nil {
 					log.Fatalf("Error processing user %s: %v\n", user.Name, err)
 				}
 				os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 				// call API
-				collectedRepositories, err := processForgeUrls(forge, user.Name, url, user.Token, srhtToken)
+				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, user.Name, url, user.Token, srhtToken)
 				if err != nil {
 					log.Fatalf("Error processing Forge URL %s: %v", url, err)
 				}
-				processRepositories(collectedRepositories, forge, rootDir, dirToAppend, user.IgnoreForks, user.StarsGreater, &wg, threads)
+				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, user.IgnoreForks, user.StarsGreater, &wg, threads)
 			}
 			
 			// now do the same but for organisations
 			for _, organisation := range cloneConfigMap[forge].Organisations {
-				url, dirToAppend, err := processOrganisation(forge, organisation.Name, organisation.InstanceUrl)
+				url, dirToAppend, err := retrieveReposUrlFromOrganisation(forge, organisation.Name, organisation.InstanceUrl)
 				if err != nil {
 					log.Fatalf("Error processing organisation: %v", err)
 				}
 				os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 				
-				collectedRepositories, err := processForgeUrls(forge, user, url, organisation.Token, srhtToken)
+				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, user, url, organisation.Token, srhtToken)
 				if err != nil {
 					log.Fatalf("Error processing Forge URLs: %v", err)
 				}
-				processRepositories(collectedRepositories, forge, rootDir, dirToAppend, organisation.IgnoreForks, organisation.StarsGreater, &wg, threads)
+				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, organisation.IgnoreForks, organisation.StarsGreater, &wg, threads)
 			}
 		}
 	case user != "" && cloneFile == "":
-		url, dirToAppend, err := processUser(forge, user, instanceUrl)
+		url, dirToAppend, err := retrieveReposUrlFromUser(forge, user, instanceUrl)
 		if err != nil {
 			log.Fatalf("Error processing user %s: %v", user, err)
 		}
 		os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 
 		// call API
-		collectedRepositories, err := processForgeUrls(forge, user, url, "", srhtToken)
+		collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, user, url, "", srhtToken)
 		if err != nil {
 			log.Fatalf("Error with directory: %v", err)
 		}
-		processRepositories(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, threads)
+		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, threads)
 		
 	case organisation != "" && cloneFile == "":
 		// one-element list
-		url, dirToAppend, err := processOrganisation(forge, organisation, instanceUrl)
+		url, dirToAppend, err := retrieveReposUrlFromOrganisation(forge, organisation, instanceUrl)
 		if err != nil {
 			log.Fatalf("Error processing organisation: %v", err)
 		}
 		os.Mkdir(forge + rootDir + dirToAppend + "/", 0755)
 
 		// call API
-		collectedRepositories, err := processForgeUrls(forge, user, url, "", srhtToken)
+		collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, user, url, "", srhtToken)
 		if err != nil {
 			log.Fatalf("Error with directory: %v", err)
 		}
-		processRepositories(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, threads)
+		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, threads)
 	}
 }

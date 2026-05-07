@@ -387,7 +387,7 @@ func TestProcessCloneFile(t *testing.T) {
 	}
 }
 
-func TestProcessUser(t *testing.T) {
+func TestRetrieveReposUrlFromUser(t *testing.T) {
 	tests := []struct {
 		name             string
 		forge            string
@@ -440,7 +440,7 @@ func TestProcessUser(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			url, dir, _ := processUser(test.forge, test.user, test.instanceUrl)
+			url, dir, _ := retrieveReposUrlFromUser(test.forge, test.user, test.instanceUrl)
 
 			if url != test.expectedUrl {
 				t.Errorf("Expected URL '%s', got '%s'", test.expectedUrl, url)
@@ -452,7 +452,7 @@ func TestProcessUser(t *testing.T) {
 	}
 }
 
-func TestProcessOrganisation(t *testing.T) {
+func TestRetrieveReposUrlFromOrganisation(t *testing.T) {
 	tests := []struct {
 		name        string
 		forge       string
@@ -505,7 +505,7 @@ func TestProcessOrganisation(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			url, dir, _ := processOrganisation(test.forge, test.org, test.instanceUrl)
+			url, dir, _ := retrieveReposUrlFromOrganisation(test.forge, test.org, test.instanceUrl)
 
 			if url != test.expectedUrl {
 				t.Errorf("Expected URL '%s', got '%s'", test.expectedUrl, url)
@@ -771,7 +771,7 @@ func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 	}
 }
 
-func TestProcessForgeUrls(t *testing.T) {
+func TestRetrieveRepositoriesFromForgeUrl(t *testing.T) {
 	tests := []struct {
 		name        string
 		forge       string
@@ -875,7 +875,7 @@ func TestProcessForgeUrls(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			repos, err := processForgeUrls(test.forge, test.user, test.url, test.token, test.srhtToken)
+			repos, err := retrieveRepositoriesFromForgeUrl(test.forge, test.user, test.url, test.token, test.srhtToken)
 
 			if (err != nil) != test.expectError {
 				t.Errorf("Expected error=%v, got err=%v", test.expectError, err)
@@ -887,7 +887,7 @@ func TestProcessForgeUrls(t *testing.T) {
 	}
 }
 
-func TestProcessRepositories(t *testing.T) {
+func TestCloneOrPullRepositoryListt (t *testing.T) {
 	tests := []struct {
 		name         string
 		repos        []Repository
@@ -997,7 +997,7 @@ func TestProcessRepositories(t *testing.T) {
 			var wg sync.WaitGroup
 
 			// should not panic
-			processRepositories(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.threads)
+			cloneOrPullRepositoryList(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.threads)
 
 			if test.expectedCloned >= 0 {
 				repoBaseDir := filepath.Join(dir, test.forge, test.dirToAppend)
@@ -1150,4 +1150,3 @@ func TestCloneOrPullRepositoryAsync(t *testing.T) {
 		})
 	}
 }
-
