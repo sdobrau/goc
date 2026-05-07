@@ -314,15 +314,43 @@ func handleSigInt(wg *sync.WaitGroup) {
 	os.Exit(0)
 }
 
-// * GitHub functions
+// * Wrappers for collectRepositories
+
 func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, error) {
-	var completeRepositories []GitHubRepository
-	endOfPaginatedRepos := false
-	if a_token == "" {
-		a_token = os.Getenv("GITHUB_TOKEN")
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITHUB_TOKEN")
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 	}
+	return collectRepositories[GitHubRepository](url, a_token, header)
+}
+
+func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, error) {
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITLAB_TOKEN")
+		}
+		req.Header.Set("PRIVATE-TOKEN", token)
+	}
+	return collectRepositories[GitLabRepository](url, a_token, header)
+}
+
+func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, error) {
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITEA_TOKEN")
+		}
+		req.Header.Set("Authocrization", fmt.Sprintf("token %s", token))
+	}
+	return collectRepositories[GiteaRepository](url, a_token, header)
+}
+
+func collectRepositories[T any](url string, a_token string, setHeader func(*http.Request, string)) ([]T, error) {
+	var completeRepositories []T
+	endOfPaginatedRepos := false
 	for i := 1; endOfPaginatedRepos == false ; i++ { // can we do this more idiomatically ?
-		var repositoriesStore []GitHubRepository
+		var repositoriesStore []T
 
 		// Create a new HTTP request
 		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
@@ -330,8 +358,10 @@ func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, 
 			return nil, fmt.Errorf("Error creating request: %v\n", err)
 		}
 
-		// Set the Authorization header with the token
-		req.Header.Set("Authorization", fmt.Sprintf("token %s", a_token))
+		if setHeader != nil {
+			// Set the Authorization header with the token
+			setHeader(req, a_token)
+		}
 
 		// Create a client and send the request
 		client := &http.Client{}
@@ -371,108 +401,7 @@ func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, 
 	}
 	// at the end return the repository list
 	return completeRepositories, nil
-}
 
-// * GitLab functions
-func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, error) {
-	var completeRepositories []GitLabRepository
-	endOfPaginatedRepos := false
-	if a_token == "" {
-		a_token = os.Getenv("GITLAB_TOKEN")
-	}
-	for i := 1; endOfPaginatedRepos == false ; i++ { // loop until reach end of pages
-		var repositoriesStore []GitLabRepository
-
-		// Create a new HTTP request
-		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
-		if err != nil {
-			return nil, fmt.Errorf("Error creating request: %v\n", err)
-		}
-
-		// Set the Authorization header with the token
-		req.Header.Set("PRIVATE-TOKEN", a_token)
-
-		// Create a client and send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("Error making request: %v\n", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("Error: received status code %d\n", resp.StatusCode)
-		}
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("Error reading response body: %s\n", err)
-		}
-		err = json.Unmarshal(body, &repositoriesStore)
-		if err != nil { 
-			return nil, fmt.Errorf("Error unmarshaling JSON: %v\n", err)
-		}
-		if len(repositoriesStore) != 0 {
-			// unpack 
-			completeRepositories = append(completeRepositories,repositoriesStore...)
-		} else if len(repositoriesStore) == 0 {
-			if i == 1 {
-				return nil, fmt.Errorf("No repositories found at URL %s\n", url)
-			} else if i >= 2 {
-				endOfPaginatedRepos = true
-			}
-		}
-	}
-	// at the end return the repository list
-	return completeRepositories, nil
-}
-
-// * Gitea functions
-func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, error) {
-	var completeRepositories []GiteaRepository
-	endOfPaginatedRepos := false
-	if a_token == "" {
-		a_token = os.Getenv("GITEA_TOKEN")
-	}
-	for i := 1; endOfPaginatedRepos == false ; i++ { // can we do this more idiomatically ?
-		var repositoriesStore []GiteaRepository
-		// Create a new HTTP request
-		req, err := http.NewRequest("GET", url + "&page=" + strconv.Itoa(i), nil)
-		if err != nil {
-			return nil, fmt.Errorf("Error creating request: %v\n", err)
-		}
-
-		// Set the Authorization header with the token
-		req.Header.Set("Authorization", fmt.Sprintf("token %s", a_token))
-
-		// Create a client and send the request
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("Error making request: %v\n", err)
-		}
-		defer resp.Body.Close()
-		
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("Error reading response body: %s\n", err)
-		}	
-		err = json.Unmarshal(body, &repositoriesStore)
-		if err != nil { 
-			return nil, fmt.Errorf("Error unmarshaling JSON: %v\n", err)
-		}
-		if len(repositoriesStore) != 0 {
-			// unpack 
-			completeRepositories = append(completeRepositories,repositoriesStore...)
-		} else if len(repositoriesStore) == 0 {
-			if i == 1 {
-				return nil, fmt.Errorf("No repositories found at URL %s\n", url)
-			} else if i >= 2 {
-				endOfPaginatedRepos = true
-			}
-		}
-	}
-	// at the end return the repository list
-	return completeRepositories, nil
 }
 
 // * SourceHut functions
@@ -826,10 +755,10 @@ func handleOptionErrors(forge string, user string, organisation string, token st
 		fmt.Fprintf(os.Stderr, "Insert a user with -u or organisation with -o or clone file with -F")
 		usage()
 		os.Exit(1)
-	// case starsGreater < 0:
-	// 	fmt.Println("Don't use a negative value for starsGreater")
-	// 	usage()
-	// 	os.Exit(1)
+		// case starsGreater < 0:
+		// 	fmt.Println("Don't use a negative value for starsGreater")
+		// 	usage()
+		// 	os.Exit(1)
 		
 	case forge == "sourcehut" && token == "":
 		fmt.Fprintf(os.Stderr, "OAuth 2 token required for using the SourceHut API")

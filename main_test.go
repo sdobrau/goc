@@ -6,9 +6,11 @@ import (
 	"testing"
 	"os"
 	"path/filepath"
+	"fmt"
 	"reflect"
 	"sync"
 	"os/exec"
+	"net/http"
 )
 
 // * helpers
@@ -515,241 +517,255 @@ func TestProcessOrganisation(t *testing.T) {
 	}
 }
 
-func TestCollectGitHubRepositories(t *testing.T) {
+func TestCollectRepositories_Generic_GitHub(t *testing.T) {
 	tests := []struct {
-		name          string
-		url           string
-		token         string
-		minCount      int
-		expectError   bool
+		name      string
+		url       string
+		token     string
+		minCount  int
+		expectErr bool
 	}{
 		{
-			name:        "Valid public user with repos",
-			url:         "https://api.github.com/users/torvalds/repos?per_page=100",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public user with repos",
+			url:      "https://api.github.com/users/torvalds/repos?per_page=100",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Valid public user but no repos",
-			url:         "https://api.github.com/users/bno123bno/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public user but no repos",
+			url:      "https://api.github.com/users/bno123bno/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Valid public org with repos",
-			url:         "https://api.github.com/orgs/golang/repos?per_page=100",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public org with repos",
+			url:      "https://api.github.com/orgs/golang/repos?per_page=100",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Valid public org but no repos",
-			url:         "https://api.github.com/orgs/Empty-Organisation/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public org but no repos",
+			url:      "https://api.github.com/orgs/Empty-Organisation/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Non-existent user",
-			url:         "https://api.github.com/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent user",
+			url:      "https://api.github.com/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Non-existent organisation",
-			url:         "https://api.github.com/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent organisation",
+			url:      "https://api.github.com/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Invalid URL",
-			url:         "https://api.github.com/invalid/endpoint?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Invalid URL",
+			url:      "https://api.github.com/invalid/endpoint?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Invalid token",
-			url:         "https://api.github.com/users/sdobrau/repos?per_page=100",
-			token:       "invalid",
-			minCount:    0,
-			expectError: true,
+			name:     "Invalid token",
+			url:      "https://api.github.com/users/sdobrau/repos?per_page=100",
+			token:    "invalid",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "User with 200+ repositories. Make sure all repos are fetched",
-			url:         "https://api.github.com/users/proppy/repos?per_page=100",
-			token:       "",
-			minCount:    287,
-			expectError: false,
+			name:     "User with 200+ repositories. Make sure all repos are fetched",
+			url:      "https://api.github.com/users/proppy/repos?per_page=100",
+			token:    "",
+			minCount: 287,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repos, err := collectGitHubRepositories(test.url, test.token)
 
-			if (err != nil) != test.expectError {
-				t.Errorf("Expected error=%v, got err=%v", test.expectError, err)
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITHUB_TOKEN")
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repos, err := collectRepositories[GitHubRepository](tt.url, tt.token, header)
+
+			if (err != nil) != tt.expectErr {
+				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
 			}
-			if !test.expectError && len(repos) < test.minCount {
-				t.Errorf("Expected at least %d repos, got %d", test.minCount, len(repos))
+			if !tt.expectErr && len(repos) < tt.minCount {
+				t.Fatalf("Expected at least %d repos, got %d", tt.minCount, len(repos))
 			}
 		})
 	}
 }
 
-func TestCollectGitLabRepositories(t *testing.T) {
+func TestCollectRepositories_Generic_GitLab(t *testing.T) {
 	tests := []struct {
-		name        string
-		url         string
-		token       string
-		minCount    int
-		expectError bool
+		name      string
+		url       string
+		token     string
+		minCount  int
+		expectErr bool
 	}{
 		{
-			name:        "Valid public user with repos",
-			url:         "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public user with repos",
+			url:      "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Valid public user but no repos",
-			url:         "https://gitlab.com/api/v4/users/immaroot/projects?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
-		},
-		
-		{
-			name:        "Valid public group with repos",
-			url:         "https://gitlab.com/api/v4/groups/pkf-projects/projects?per_page=100&include_subgroups=true",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public user but no repos",
+			url:      "https://gitlab.com/api/v4/users/immaroot/projects?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Valid public group but no repos",
-			url:         "https://gitlab.com/api/v4/groups/federated-library-system/projects?per_page=100&include_subgroups=true",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public group with repos",
+			url:      "https://gitlab.com/api/v4/groups/pkf-projects/projects?per_page=100&include_subgroups=true",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Non-existent user",
-			url:         "https://gitlab.com/api/v4/users/thisuserdefinitelydoesnotexist99999/projects?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public group but no repos",
+			url:      "https://gitlab.com/api/v4/groups/federated-library-system/projects?per_page=100&include_subgroups=true",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Non-existent organisation",
-			url:         "https://gitlab.com/api/v4/users/thisorganisationdefinitelydoesnotexist99999/projects?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent user",
+			url:      "https://gitlab.com/api/v4/users/thisuserdefinitelydoesnotexist99999/projects?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Invalid token",
-			url:         "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
-			token:       "invalid",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent organisation",
+			url:      "https://gitlab.com/api/v4/users/thisorganisationdefinitelydoesnotexist99999/projects?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
+		},
+		{
+			name:     "Invalid token",
+			url:      "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
+			token:    "invalid",
+			minCount: 0,
+			expectErr: true,
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repos, err := collectGitLabRepositories(test.url, test.token)
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITLAB_TOKEN")
+		}
+		req.Header.Set("PRIVATE-TOKEN", token)
+	}
 
-			if (err != nil) != test.expectError {
-				t.Errorf("Expected error=%v, got err=%v", test.expectError, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repos, err := collectRepositories[GitLabRepository](tt.url, tt.token, header)
+
+			if (err != nil) != tt.expectErr {
+				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
 			}
-			if !test.expectError && len(repos) < test.minCount {
-				t.Errorf("Expected at least %d repos, got %d", test.minCount, len(repos))
+			if !tt.expectErr && len(repos) < tt.minCount {
+				t.Fatalf("Expected at least %d repos, got %d", tt.minCount, len(repos))
 			}
 		})
 	}
 }
 
-func TestCollectGiteaRepositories(t *testing.T) {
+func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 	tests := []struct {
-		name        string
-		url         string
-		token       string
-		minCount    int
-		expectError bool
+		name      string
+		url       string
+		token     string
+		minCount  int
+		expectErr bool
 	}{
 		{
-			name:        "Valid public user with repos",
-			url:         "https://gitea.com/api/v1/users/gitea/repos?per_page=100",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public user with repos",
+			url:      "https://gitea.com/api/v1/users/gitea/repos?per_page=100",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Valid public user but no repos",
-			url:         "https://gitea.com/api/v1/users/gittower-test/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public user but no repos",
+			url:      "https://gitea.com/api/v1/users/gittower-test/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Valid public org with repos",
-			url:         "https://gitea.com/api/v1/orgs/gitea/repos?per_page=100",
-			token:       "",
-			minCount:    1,
-			expectError: false,
+			name:     "Valid public org with repos",
+			url:      "https://gitea.com/api/v1/orgs/gitea/repos?per_page=100",
+			token:    "",
+			minCount: 1,
 		},
 		{
-			name:        "Valid public org but no repos",
-			url:         "https://gitea.com/api/v1/orgs/ftfy/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Valid public org but no repos",
+			url:      "https://gitea.com/api/v1/orgs/ftfy/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Non-existent user",
-			url:         "https://gitea.com/api/v1/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent user",
+			url:      "https://gitea.com/api/v1/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Non-existent organisation",
-			url:         "https://gitea.com/api/v1/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Non-existent organisation",
+			url:      "https://gitea.com/api/v1/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Invalid URL",
-			url:         "https://gitea.com/api/v1/invalid/endpoint?per_page=100",
-			token:       "",
-			minCount:    0,
-			expectError: true,
+			name:     "Invalid URL",
+			url:      "https://gitea.com/api/v1/invalid/endpoint?per_page=100",
+			token:    "",
+			minCount: 0,
+			expectErr: true,
 		},
 		{
-			name:        "Invalid token",
-			url:         "https://gitea.com/api/v1/users/mayx/repos/per_page=100",
-			token:       "invalid",
-			minCount:    0,
-			expectError: true,
+			name:     "Invalid token",
+			url:      "https://gitea.com/api/v1/users/mayx/repos/per_page=100",
+			token:    "invalid",
+			minCount: 0,
+			expectErr: true,
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			repos, err := collectGiteaRepositories(test.url, test.token)
+	header := func(req *http.Request, token string) {
+		if token == "" {
+			token = os.Getenv("GITEA_TOKEN")
+		}
+		req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
+	}
 
-			if (err != nil) != test.expectError {
-				t.Errorf("Expected error=%v, got err=%v", test.expectError, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repos, err := collectRepositories[GiteaRepository](tt.url, tt.token, header)
+
+			if (err != nil) != tt.expectErr {
+				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
 			}
-			if !test.expectError && len(repos) < test.minCount {
-				t.Errorf("Expected at least %d repos, got %d", test.minCount, len(repos))
+			if !tt.expectErr && len(repos) < tt.minCount {
+				t.Fatalf("Expected at least %d repos, got %d", tt.minCount, len(repos))
 			}
 		})
 	}
