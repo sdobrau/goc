@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,7 +33,7 @@ var (
 	g_instanceUrl  = flag.String("i", "", "Instance URL to clone from")
 	g_ignoreForks  = flag.Bool("x", false, "Ignore forks")
 	g_starsGreater = flag.Uint("s", 0, "Only clone repositories with stars larger than N")
-	g_goroutines   = flag.Uint("t", 20, "Number of concurrent git processes at which to slow down spawning.")
+	g_goroutines   = flag.Uint("t", 20, "Number of concurrent goroutines at which to stop spawning.")
 	g_cloneFile    = flag.String("F", "", "File to fetch cloning configuration from")
 )
 
@@ -43,6 +42,11 @@ type Repository interface {
 	GetUrl() string
 	IsFork() bool
 	GetStarCount() uint
+}
+
+type RepositoryWithDir struct {
+	Repository Repository
+	Directory string
 }
 
 // * YAML config struct
@@ -522,24 +526,24 @@ func pullRepository(dir string) error {
 	return nil
 }
 
-// * General functions
-func cloneOrPullRepositoryAsync(dir string, repo Repository, wg *sync.WaitGroup) {
-
-	wg.Go (func () {
-		gitDirectoryExists, _ := checkDir(dir + "/.git")
+func cloneOrPullWorker(wg *sync.WaitGroup, repositoryWithDirChan <-chan RepositoryWithDir) {
+	for repo := range repositoryWithDirChan {
+		fmt.Printf("Received repo %s, processing\n", repo.Repository.GetName())
+			gitDirectoryExists, _ := checkDir(repo.Directory + "/.git")
 
 		if gitDirectoryExists == false { // if no existing .git in that dir then clone
-			err := cloneRepository(repo, dir)
+			err := cloneRepository(repo.Repository, repo.Directory)
 			if err != nil {
 				log.Fatalf("Error cloning repository. Quitting: %v", err)
 			}
 		} else {
-			err := pullRepository(dir) // if directory exists then pull
+			err := pullRepository(repo.Directory) // if directory exists then pull
 			if err != nil {
 				log.Fatalf("Error pulling repository. Quitting: %v", err)
 			}
 		}
-	})
+	}
+  wg.Done()
 }
 
 func configsToMap(configs []CloneConfig) map[string]CloneConfig {
@@ -669,7 +673,7 @@ func retrieveRepositoriesFromForgeUrl(forge string, user string, url string, a_t
 	return collectedRepositories, nil
 }
 
-func cloneOrPullRepositoryList(collectedRepositories []Repository, forge string, dir string, dirToAppend string, ignoreForks bool, starsGreater uint, wg *sync.WaitGroup, goroutines uint) {
+func cloneOrPullRepositoryList(collectedRepositories []Repository, forge string, dir string, dirToAppend string, repositoryWithDirChan chan RepositoryWithDir, ignoreForks bool, starsGreater uint) {
 	repositoriesFetched := 0
 	// * the cloning code
 	for _, repository := range collectedRepositories {
@@ -695,18 +699,18 @@ func cloneOrPullRepositoryList(collectedRepositories []Repository, forge string,
 			smallSleep()
 			checkSpace()
 			// sleep for a while if goroutines higher than -t
-			for {
-				if uint(runtime.NumGoroutine()) >= goroutines {
-					bigSleep()
-				} else {
-					break
-				}
-			}
-			cloneOrPullRepositoryAsync(repoDir, repository, wg)
+			// for {
+			// 	if uint(runtime.NumGoroutine()) >= goroutines {
+			// 		bigSleep()
+			// 	} else {
+			// 		break
+			// 	}
+			// }
+			fmt.Printf("Sending repository %s with dir %s\n", repository.GetName(), repoDir)
+			repositoryWithDirChan <- RepositoryWithDir{Repository: repository, Directory: repoDir}
 			repositoriesFetched += 1
 		}
 	}
-	wg.Wait()
 	fmt.Printf("Finished fetching %d repos to %s\n", repositoriesFetched, dirToAppend)
 }
 
@@ -774,8 +778,8 @@ func main() {
 	// * wg setup and handler func with channel for SIGINT
 	var wg sync.WaitGroup
 	go func() {
-		<-sigs
-		handleSigInt(&wg)
+		<-sigs // wait to receive on sigs channel
+		handleSigInt(&wg) // on receive, handleSigInt
 	}()
 
 	// check dir
@@ -786,6 +790,11 @@ func main() {
 		}
 	}
 
+	// init channel and workers
+	var repositoryWithDirChan = make(chan RepositoryWithDir)
+	for i := 0; uint(i) < goroutines; i++ {
+		wg.Go(func() {cloneOrPullWorker(&wg, repositoryWithDirChan)})
+	}
 	// * main loop.
 	// if given a range of forge + users then iterate over them
 	// if not, just single given
@@ -809,7 +818,7 @@ func main() {
 				if err != nil {
 					log.Fatalf("Error processing Forge URL %s: %v", url, err)
 				}
-				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, user.IgnoreForks, user.StarsGreater, &wg, goroutines)
+				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, user.IgnoreForks, user.StarsGreater)
 			}
 
 			// now do the same but for organisations
@@ -824,7 +833,7 @@ func main() {
 				if err != nil {
 					log.Fatalf("Error processing Forge URLs: %v", err)
 				}
-				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, organisation.IgnoreForks, organisation.StarsGreater, &wg, goroutines)
+				cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, organisation.IgnoreForks, organisation.StarsGreater)
 			}
 		}
 	case user != "" && cloneFile == "":
@@ -839,7 +848,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error with directory: %v", err)
 		}
-		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, goroutines)
+		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater)
 
 	case organisation != "" && cloneFile == "":
 		// one-element list
@@ -854,6 +863,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error with directory: %v", err)
 		}
-		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, ignoreForks, starsGreater, &wg, goroutines)
+		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater)
 	}
 }

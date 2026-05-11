@@ -3,14 +3,14 @@ package main
 // code taken from Claude.
 
 import (
-	"testing"
-	"os"
-	"path/filepath"
 	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"sync"
-	"os/exec"
-	"net/http"
+	"testing"
 )
 
 // * helpers
@@ -327,7 +327,7 @@ func TestProcessCloneFile(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests { // for each test 
+	for _, test := range tests { // for each test
 		t.Run(test.name, func(t *testing.T) { // run the test
 			var filePath string
 
@@ -389,12 +389,12 @@ func TestProcessCloneFile(t *testing.T) {
 
 func TestRetrieveReposUrlFromUser(t *testing.T) {
 	tests := []struct {
-		name             string
-		forge            string
-		user             string
-		instanceUrl      string
-		expectedUrl      string
-		expectedDir      string
+		name        string
+		forge       string
+		user        string
+		instanceUrl string
+		expectedUrl string
+		expectedDir string
 	}{
 		{
 			name:        "GitHub user",
@@ -532,10 +532,10 @@ func TestCollectRepositories_Generic_GitHub(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public user but no repos",
-			url:      "https://api.github.com/users/bno123bno/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public user but no repos",
+			url:       "https://api.github.com/users/bno123bno/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
@@ -545,38 +545,38 @@ func TestCollectRepositories_Generic_GitHub(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public org but no repos",
-			url:      "https://api.github.com/orgs/Empty-Organisation/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public org but no repos",
+			url:       "https://api.github.com/orgs/Empty-Organisation/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent user",
-			url:      "https://api.github.com/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent user",
+			url:       "https://api.github.com/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent organisation",
-			url:      "https://api.github.com/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent organisation",
+			url:       "https://api.github.com/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Invalid URL",
-			url:      "https://api.github.com/invalid/endpoint?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Invalid URL",
+			url:       "https://api.github.com/invalid/endpoint?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Invalid token",
-			url:      "https://api.github.com/users/sdobrau/repos?per_page=100",
-			token:    "invalid",
-			minCount: 0,
+			name:      "Invalid token",
+			url:       "https://api.github.com/users/sdobrau/repos?per_page=100",
+			token:     "invalid",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
@@ -629,10 +629,10 @@ func TestCollectRepositories_Generic_GitLab(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public user but no repos",
-			url:      "https://gitlab.com/api/v4/users/immaroot/projects?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public user but no repos",
+			url:       "https://gitlab.com/api/v4/users/immaroot/projects?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
@@ -642,31 +642,31 @@ func TestCollectRepositories_Generic_GitLab(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public group but no repos",
-			url:      "https://gitlab.com/api/v4/groups/federated-library-system/projects?per_page=100&include_subgroups=true",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public group but no repos",
+			url:       "https://gitlab.com/api/v4/groups/federated-library-system/projects?per_page=100&include_subgroups=true",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent user",
-			url:      "https://gitlab.com/api/v4/users/thisuserdefinitelydoesnotexist99999/projects?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent user",
+			url:       "https://gitlab.com/api/v4/users/thisuserdefinitelydoesnotexist99999/projects?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent organisation",
-			url:      "https://gitlab.com/api/v4/users/thisorganisationdefinitelydoesnotexist99999/projects?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent organisation",
+			url:       "https://gitlab.com/api/v4/users/thisorganisationdefinitelydoesnotexist99999/projects?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Invalid token",
-			url:      "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
-			token:    "invalid",
-			minCount: 0,
+			name:      "Invalid token",
+			url:       "https://gitlab.com/api/v4/users/strangerpr0gram/projects?per_page=100",
+			token:     "invalid",
+			minCount:  0,
 			expectErr: true,
 		},
 	}
@@ -707,10 +707,10 @@ func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public user but no repos",
-			url:      "https://gitea.com/api/v1/users/gittower-test/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public user but no repos",
+			url:       "https://gitea.com/api/v1/users/gittower-test/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
@@ -720,38 +720,38 @@ func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public org but no repos", 
-			url:      "https://gitea.com/api/v1/orgs/123123123/repos?per_page=100ch",
-			token:    "",
-			minCount: 0,
+			name:      "Valid public org but no repos",
+			url:       "https://gitea.com/api/v1/orgs/123123123/repos?per_page=100ch",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent user",
-			url:      "https://gitea.com/api/v1/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent user",
+			url:       "https://gitea.com/api/v1/users/thisuserdefinitelydoesnotexist99999/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Non-existent organisation",
-			url:      "https://gitea.com/api/v1/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Non-existent organisation",
+			url:       "https://gitea.com/api/v1/users/thisorganisationdefinitelydoesnotexist99999/repos?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Invalid URL",
-			url:      "https://gitea.com/api/v1/invalid/endpoint?per_page=100",
-			token:    "",
-			minCount: 0,
+			name:      "Invalid URL",
+			url:       "https://gitea.com/api/v1/invalid/endpoint?per_page=100",
+			token:     "",
+			minCount:  0,
 			expectErr: true,
 		},
 		{
-			name:     "Invalid token",
-			url:      "https://gitea.com/api/v1/users/mayx/repos/per_page=100",
-			token:    "invalid",
-			minCount: 0,
+			name:      "Invalid token",
+			url:       "https://gitea.com/api/v1/users/mayx/repos/per_page=100",
+			token:     "invalid",
+			minCount:  0,
 			expectErr: true,
 		},
 	}
@@ -893,15 +893,15 @@ func TestRetrieveRepositoriesFromForgeUrl(t *testing.T) {
 	}
 }
 
-func TestCloneOrPullRepositoryList (t *testing.T) {
+func TestCloneOrPullRepositoryList(t *testing.T) {
 	tests := []struct {
-		name         string
-		repos        []Repository
-		forge        string
-		dirToAppend  string
-		ignoreForks  bool
-		starsGreater uint
-		goroutines      uint
+		name           string
+		repos          []Repository
+		forge          string
+		dirToAppend    string
+		ignoreForks    bool
+		starsGreater   uint
+		goroutines     uint
 		expectedCloned int // -1 means skip count check
 	}{
 		{
@@ -913,7 +913,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  true,
 			starsGreater: 0,
-			goroutines:      20,
+			goroutines:   20,
 		},
 		{
 			name: "Skip forks when ignoreForks is true",
@@ -924,7 +924,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  true,
 			starsGreater: 0,
-			goroutines:      20,
+			goroutines:   20,
 		},
 		{
 			name: "Skip repos below star threshold",
@@ -935,7 +935,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  false,
 			starsGreater: 10,
-			goroutines:      20,
+			goroutines:   20,
 		},
 		{
 			name:         "Empty repository list",
@@ -944,7 +944,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:  "emptyuser",
 			ignoreForks:  false,
 			starsGreater: 0,
-			goroutines:      20,
+			goroutines:   20,
 		},
 		{
 			name: "Clone all repositories and verify count for small user (sdobrau, 11 repositories)",
@@ -964,7 +964,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:    "sdobrau",
 			ignoreForks:    false,
 			starsGreater:   0,
-			goroutines:        20,
+			goroutines:     20,
 			expectedCloned: 11,
 		},
 		{
@@ -985,7 +985,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:    "tj",
 			ignoreForks:    false,
 			starsGreater:   0,
-			goroutines:        20,
+			goroutines:     20,
 			expectedCloned: 296,
 		},
 		{
@@ -1006,7 +1006,7 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 			dirToAppend:    "Param-Harrison",
 			ignoreForks:    false,
 			starsGreater:   0,
-			goroutines:        20,
+			goroutines:     20,
 			expectedCloned: 296,
 		},
 	}
@@ -1022,9 +1022,13 @@ func TestCloneOrPullRepositoryList (t *testing.T) {
 
 			dir := tmpDir + "/"
 			var wg sync.WaitGroup
-
+			// init channel and workers
+			var repositoryWithDirChan = make(chan RepositoryWithDir)
+			for i := 0; uint(i) < test.goroutines; i++ {
+				wg.Go(func() { cloneOrPullWorker(&wg, repositoryWithDirChan) })
+			}
 			// should not panic
-			cloneOrPullRepositoryList(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.goroutines)
+			cloneOrPullRepositoryList(test.repos, test.forge, dir, test.dirToAppend, repositoryWithDirChan, test.ignoreForks, test.starsGreater)
 
 			if test.expectedCloned >= 0 {
 				repoBaseDir := filepath.Join(dir, test.forge, test.dirToAppend)
@@ -1125,7 +1129,9 @@ func TestPullRepository(t *testing.T) {
 	}
 }
 
-func TestCloneOrPullRepositoryAsync(t *testing.T) {
+// test cloneorpull worker
+
+func TestCloneOrPullWorker(t *testing.T) {
 	tests := []struct {
 		name         string
 		repo         Repository
@@ -1133,13 +1139,13 @@ func TestCloneOrPullRepositoryAsync(t *testing.T) {
 		expectDotGit bool
 	}{
 		{
-			name:         "Async clone of a new repository",
+			name:         "Worker clone of a new repository",
 			repo:         GitHubRepository{Name: "Hello-World", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
 			preClone:     false,
 			expectDotGit: true,
 		},
 		{
-			name:         "Async pull of an already cloned repository",
+			name:         "Worker pull of an already cloned repository",
 			repo:         GitHubRepository{Name: "Hello-World", Url: "https://github.com/octocat/Hello-World", Fork: false, StargazersCount: 0},
 			preClone:     true,
 			expectDotGit: true,
@@ -1148,13 +1154,17 @@ func TestCloneOrPullRepositoryAsync(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			tmpDir, err := os.MkdirTemp("", "asyncrepo-*")
+			tmpDir, err := os.MkdirTemp("", "workerrepo-*")
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
 			defer os.RemoveAll(tmpDir)
 
 			dir := filepath.Join(tmpDir, test.repo.GetName())
+			repoWithDir := RepositoryWithDir{
+				Repository: test.repo,
+				Directory:  dir,
+			}
 
 			if test.preClone {
 				cloneRepository(test.repo, dir)
@@ -1164,9 +1174,9 @@ func TestCloneOrPullRepositoryAsync(t *testing.T) {
 				}
 			}
 
-			var wg sync.WaitGroup
-			cloneOrPullRepositoryAsync(dir, test.repo, &wg)
-			wg.Wait()
+			// init channel and workers
+			var repositoryWithDirChan = make(chan RepositoryWithDir)
+			repositoryWithDirChan <- repoWithDir
 
 			_, err = os.Stat(filepath.Join(dir, ".git"))
 			hasDotGit := err == nil
