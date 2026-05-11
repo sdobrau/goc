@@ -524,10 +524,8 @@ func pullRepository(dir string) error {
 
 // * General functions
 func cloneOrPullRepositoryAsync(dir string, repo Repository, wg *sync.WaitGroup) {
-	wg.Add(1)
 
-	go func(repo Repository) {
-		defer wg.Done()
+	wg.Go (func () {
 		gitDirectoryExists, _ := checkDir(dir + "/.git")
 
 		if gitDirectoryExists == false { // if no existing .git in that dir then clone
@@ -541,7 +539,7 @@ func cloneOrPullRepositoryAsync(dir string, repo Repository, wg *sync.WaitGroup)
 				log.Fatalf("Error pulling repository. Quitting: %v", err)
 			}
 		}
-	}(repo)
+	})
 }
 
 func configsToMap(configs []CloneConfig) map[string]CloneConfig {
