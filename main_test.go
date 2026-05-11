@@ -585,6 +585,12 @@ func TestCollectRepositories_Generic_GitHub(t *testing.T) {
 			token:    "",
 			minCount: 287,
 		},
+		{
+			name:     "User with 900+ repositories. Make sure all repos are fetched",
+			url:      "https://api.github.com/users/KOSASIH/repos?per_page=100",
+			token:    "",
+			minCount: 973,
+		},
 	}
 
 	header := func(req *http.Request, token string) {
@@ -714,8 +720,8 @@ func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 			minCount: 1,
 		},
 		{
-			name:     "Valid public org but no repos",
-			url:      "https://gitea.com/api/v1/orgs/ftfy/repos?per_page=100",
+			name:     "Valid public org but no repos", 
+			url:      "https://gitea.com/api/v1/orgs/123123123/repos?per_page=100ch",
 			token:    "",
 			minCount: 0,
 			expectErr: true,
@@ -887,7 +893,7 @@ func TestRetrieveRepositoriesFromForgeUrl(t *testing.T) {
 	}
 }
 
-func TestCloneOrPullRepositoryListt (t *testing.T) {
+func TestCloneOrPullRepositoryList (t *testing.T) {
 	tests := []struct {
 		name         string
 		repos        []Repository
@@ -895,7 +901,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 		dirToAppend  string
 		ignoreForks  bool
 		starsGreater uint
-		threads      uint
+		goroutines      uint
 		expectedCloned int // -1 means skip count check
 	}{
 		{
@@ -907,7 +913,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  true,
 			starsGreater: 0,
-			threads:      20,
+			goroutines:      20,
 		},
 		{
 			name: "Skip forks when ignoreForks is true",
@@ -918,7 +924,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  true,
 			starsGreater: 0,
-			threads:      20,
+			goroutines:      20,
 		},
 		{
 			name: "Skip repos below star threshold",
@@ -929,7 +935,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:  "sdobrau",
 			ignoreForks:  false,
 			starsGreater: 10,
-			threads:      20,
+			goroutines:      20,
 		},
 		{
 			name:         "Empty repository list",
@@ -938,7 +944,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:  "emptyuser",
 			ignoreForks:  false,
 			starsGreater: 0,
-			threads:      20,
+			goroutines:      20,
 		},
 		{
 			name: "Clone all repositories and verify count for small user (sdobrau, 11 repositories)",
@@ -958,7 +964,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:    "sdobrau",
 			ignoreForks:    false,
 			starsGreater:   0,
-			threads:        20,
+			goroutines:        20,
 			expectedCloned: 11,
 		},
 		{
@@ -979,14 +985,35 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			dirToAppend:    "tj",
 			ignoreForks:    false,
 			starsGreater:   0,
-			threads:        20,
+			goroutines:        20,
+			expectedCloned: 296,
+		},
+		{
+			name: "Clone all repositories and verify count for large user (Param-Harrison, 900 repositories)",
+			repos: func() []Repository {
+				repos, err := collectGitHubRepositories(
+					"https://api.github.com/users/Param-Harrison/repos?per_page=100", "")
+				if err != nil {
+					return []Repository{}
+				}
+				var result []Repository
+				for _, r := range repos {
+					result = append(result, r)
+				}
+				return result
+			}(),
+			forge:          "github",
+			dirToAppend:    "Param-Harrison",
+			ignoreForks:    false,
+			starsGreater:   0,
+			goroutines:        20,
 			expectedCloned: 296,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			tmpDir, err := os.MkdirTemp("", "processrepos-*")
+			tmpDir, err := os.MkdirTemp("/home/sdobrau/tmp", "processrepos-*")
 			if err != nil {
 				t.Fatalf("Failed to create temp dir: %v", err)
 			}
@@ -997,7 +1024,7 @@ func TestCloneOrPullRepositoryListt (t *testing.T) {
 			var wg sync.WaitGroup
 
 			// should not panic
-			cloneOrPullRepositoryList(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.threads)
+			cloneOrPullRepositoryList(test.repos, test.forge, dir, test.dirToAppend, test.ignoreForks, test.starsGreater, &wg, test.goroutines)
 
 			if test.expectedCloned >= 0 {
 				repoBaseDir := filepath.Join(dir, test.forge, test.dirToAppend)
