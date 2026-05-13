@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -282,12 +281,6 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "Flags:\n")
 	flag.PrintDefaults()
 	os.Exit(1)
-}
-
-func handleSigInt(wg *sync.WaitGroup) {
-	fmt.Println("Received SIGINT. Waiting for fetchers to finish...")
-	wg.Wait() // wait for current goroutines to finish
-	os.Exit(0)
 }
 
 // * Wrappers for collectRepositories
@@ -772,15 +765,8 @@ func main() {
 		}
 	}()
 
-	// * handler function for SIGINT
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT)
-	// * wg setup and handler func with channel for SIGINT
+	// * wg setup
 	var wg sync.WaitGroup
-	go func() {
-		<-sigs // wait to receive on sigs channel
-		handleSigInt(&wg) // on receive, handleSigInt
-	}()
 
 	// check dir
 	if rootDir != "" {
@@ -865,4 +851,6 @@ func main() {
 		}
 		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater)
 	}
+	wg.Wait()
+	repositoryWithDirChan.
 }

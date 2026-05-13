@@ -42,7 +42,7 @@ Flags:
 Features:
 
 * [x] Clone users or groups, organisations' repositories
-* [x] Parallelism: as many as N concurrent git processes running
+* [x] Concurrency: as many as N concurrent git processes running
 * [x] Forges supported:
   * [x] GitHub
   * [x] GitLab (including instances)
