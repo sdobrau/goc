@@ -851,6 +851,16 @@ func main() {
 		}
 		cloneOrPullRepositoryList(collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater)
 	}
+	close(repositoryWithDirChan)
 	wg.Wait()
-	repositoryWithDirChan.
+
+	close(errChan)
+	errWg.Wait()
+
+	if hadErr.Load() {
+		os.Exit(1)
+	}
+	if ctx.Err() != nil {
+		os.Exit(130)
+	}
 }
