@@ -47,6 +47,8 @@ Features:
   * [x] GitHub
   * [x] GitLab (including instances)
   * [x] Gitea (including instances)
+* [x] Pull/clone processing statistics on finish of run
+* [x] Graceful shutdown on SIGTERM
 * [x] Tokens (taken from envvars `GITHUB|GITLAB|GITEA_TOKEN` or provided per-user/organisation)
 * [x] YAML file for declaring what and how to clone:
   * [x] Ignore forks

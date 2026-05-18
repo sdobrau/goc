@@ -603,7 +603,7 @@ func TestCollectRepositories_Generic_GitHub(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repos, err := collectRepositories[GitHubRepository](tt.url, tt.token, header)
+			repos, err := collectRepositories[GitHubRepository](context.Background(), tt.url, tt.token, header)
 
 			if (err != nil) != tt.expectErr {
 				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
@@ -681,7 +681,7 @@ func TestCollectRepositories_Generic_GitLab(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repos, err := collectRepositories[GitLabRepository](tt.url, tt.token, header)
+			repos, err := collectRepositories[GitLabRepository](context.Background(), tt.url, tt.token, header)
 
 			if (err != nil) != tt.expectErr {
 				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
@@ -766,7 +766,7 @@ func TestCollectRepositories_Generic_Gitea(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repos, err := collectRepositories[GiteaRepository](tt.url, tt.token, header)
+			repos, err := collectRepositories[GiteaRepository](context.Background(), tt.url, tt.token, header)
 
 			if (err != nil) != tt.expectErr {
 				t.Fatalf("Expected error=%v, got err=%v", tt.expectErr, err)
@@ -882,7 +882,7 @@ func TestRetrieveRepositoriesFromForgeUrl(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			repos, err := retrieveRepositoriesFromForgeUrl(test.forge, test.user, test.url, test.token, test.srhtToken)
+			repos, err := retrieveRepositoriesFromForgeUrl(context.Background(), test.forge, test.user, test.url, test.token, test.srhtToken)
 
 			if (err != nil) != test.expectError {
 				t.Errorf("Expected error=%v, got err=%v", test.expectError, err)
@@ -950,7 +950,7 @@ func TestCloneOrPullRepositoryList(t *testing.T) {
 		{
 			name: "Clone all repositories and verify count for small user (sdobrau, 11 repositories)",
 			repos: func() []Repository {
-				repos, err := collectGitHubRepositories(
+				repos, err := collectGitHubRepositories(context.Background(),
 					"https://api.github.com/users/sdobrau/repos?per_page=100", "")
 				if err != nil {
 					return []Repository{}
@@ -971,7 +971,7 @@ func TestCloneOrPullRepositoryList(t *testing.T) {
 		{
 			name: "Clone all repositories and verify count for medium user (tj, 296 repositories)",
 			repos: func() []Repository {
-				repos, err := collectGitHubRepositories(
+				repos, err := collectGitHubRepositories(context.Background(),
 					"https://api.github.com/users/tj/repos?per_page=100", "")
 				if err != nil {
 					return []Repository{}
@@ -1036,11 +1036,11 @@ func TestCloneOrPullRepositoryList(t *testing.T) {
 
 			for i := 0; uint(i) < test.goroutines; i++ {
 				wg.Go(func() {
-					cloneOrPullWorker(ctx, repositoryWithDirChan, errChan)
+					cloneOrPullWorker(ctx, repositoryWithDirChan, errChan, nil)
 				})
 			}
 
-			cloneOrPullRepositoryList(ctx, test.repos, test.forge, dir, test.dirToAppend, repositoryWithDirChan, test.ignoreForks, test.starsGreater, errChan)
+			cloneOrPullRepositoryList(ctx, test.repos, test.forge, dir, test.dirToAppend, repositoryWithDirChan, test.ignoreForks, test.starsGreater, errChan, nil, "", nil)
 			close(repositoryWithDirChan)
 			wg.Wait()
 			close(errChan)
@@ -1215,7 +1215,7 @@ func TestCloneOrPullWorker(t *testing.T) {
 
 			var wg sync.WaitGroup
 			wg.Go(func() {
-				cloneOrPullWorker(ctx, repositoryWithDirChan, errChan)
+				cloneOrPullWorker(ctx, repositoryWithDirChan, errChan, nil)
 			})
 
 			repositoryWithDirChan <- repoWithDir

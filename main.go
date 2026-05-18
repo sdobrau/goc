@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +51,23 @@ type Repository interface {
 type RepositoryWithDir struct {
 	Repository Repository
 	Directory  string
+	OwnerKey   string
+	OwnerStats *RunStats
+}
+
+type RunStats struct {
+	Listed       atomic.Uint64
+	Queued       atomic.Uint64
+	NotQueued    atomic.Uint64
+	Completed    atomic.Uint64
+	Succeeded    atomic.Uint64
+	Failed       atomic.Uint64
+	Canceled     atomic.Uint64
+	Cloned       atomic.Uint64
+	Pulled       atomic.Uint64
+	SkippedForks atomic.Uint64
+	SkippedStars atomic.Uint64
+	ErrorsLogged atomic.Uint64
 }
 
 // * YAML config struct
@@ -280,7 +299,7 @@ func usage() {
 
 // * Wrappers for collectRepositories
 
-func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, error) {
+func collectGitHubRepositories(ctx context.Context, url string, a_token string) ([]GitHubRepository, error) {
 	header := func(req *http.Request, token string) {
 		if token == "" {
 			token = os.Getenv("GITHUB_TOKEN")
@@ -289,10 +308,10 @@ func collectGitHubRepositories(url string, a_token string) ([]GitHubRepository, 
 			req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 		}
 	}
-	return collectRepositories[GitHubRepository](url, a_token, header)
+	return collectRepositories[GitHubRepository](ctx, url, a_token, header)
 }
 
-func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, error) {
+func collectGitLabRepositories(ctx context.Context, url string, a_token string) ([]GitLabRepository, error) {
 	header := func(req *http.Request, token string) {
 		if token == "" {
 			token = os.Getenv("GITLAB_TOKEN")
@@ -301,10 +320,10 @@ func collectGitLabRepositories(url string, a_token string) ([]GitLabRepository, 
 			req.Header.Set("PRIVATE-TOKEN", token)
 		}
 	}
-	return collectRepositories[GitLabRepository](url, a_token, header)
+	return collectRepositories[GitLabRepository](ctx, url, a_token, header)
 }
 
-func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, error) {
+func collectGiteaRepositories(ctx context.Context, url string, a_token string) ([]GiteaRepository, error) {
 	header := func(req *http.Request, token string) {
 		if token == "" {
 			token = os.Getenv("GITEA_TOKEN")
@@ -313,17 +332,21 @@ func collectGiteaRepositories(url string, a_token string) ([]GiteaRepository, er
 			req.Header.Set("Authorization", fmt.Sprintf("token %s", token))
 		}
 	}
-	return collectRepositories[GiteaRepository](url, a_token, header)
+	return collectRepositories[GiteaRepository](ctx, url, a_token, header)
 }
 
-func collectRepositories[T any](url string, a_token string, setHeader func(*http.Request, string)) ([]T, error) {
+func collectRepositories[T any](ctx context.Context, url string, a_token string, setHeader func(*http.Request, string)) ([]T, error) {
 	var completeRepositories []T
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	for page := 1; ; page++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		var repositoriesStore []T
 
-		req, err := http.NewRequest("GET", url+"&page="+strconv.Itoa(page), nil)
+		req, err := http.NewRequestWithContext(ctx, "GET", url+"&page="+strconv.Itoa(page), nil)
 		if err != nil {
 			return nil, fmt.Errorf("creating request: %w", err)
 		}
@@ -335,6 +358,9 @@ func collectRepositories[T any](url string, a_token string, setHeader func(*http
 
 		resp, err := client.Do(req)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, fmt.Errorf("making request: %w", err)
 		}
 
@@ -389,7 +415,7 @@ func filterSourceHutRepositories(repositories []SourceHutGitRepository, apiUsern
 	return filteredRepositories, nil
 }
 
-func querySourceHutRepositoriesPage(cursor SourceHutCursor, apiUsername string, a_token string) ([]SourceHutGitRepository, SourceHutCursor, error) {
+func querySourceHutRepositoriesPage(ctx context.Context, cursor SourceHutCursor, apiUsername string, a_token string) ([]SourceHutGitRepository, SourceHutCursor, error) {
 	queryPath := "https://git.sr.ht/query"
 
 	// for json
@@ -405,7 +431,7 @@ func querySourceHutRepositoriesPage(cursor SourceHutCursor, apiUsername string, 
 		return nil, "", err
 	}
 
-	req, err := http.NewRequest("POST", queryPath, bytes.NewReader(queryBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", queryPath, bytes.NewReader(queryBody))
 	if err != nil {
 		return nil, "", err
 	}
@@ -457,7 +483,7 @@ func querySourceHutRepositoriesPage(cursor SourceHutCursor, apiUsername string, 
 	return repos, SourceHutCursor(response.Data.Repositories.Cursor), nil
 }
 
-func collectSourceHutGitRepositories(user string, token string) ([]SourceHutGitRepository, error) {
+func collectSourceHutGitRepositories(ctx context.Context, user string, token string) ([]SourceHutGitRepository, error) {
 
 	var completeRepositories []SourceHutGitRepository
 
@@ -469,7 +495,10 @@ func collectSourceHutGitRepositories(user string, token string) ([]SourceHutGitR
 	// fetch until cursor nil
 	var cursor SourceHutCursor
 	for {
-		reposPage, nextCursor, err := querySourceHutRepositoriesPage(cursor, apiUsername, token)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		reposPage, nextCursor, err := querySourceHutRepositoriesPage(ctx, cursor, apiUsername, token)
 		if err != nil {
 			return nil, err
 		}
@@ -511,52 +540,89 @@ func pullRepository(ctx context.Context, dir string) error {
 	return nil
 }
 
-func cloneOrPullWorker(ctx context.Context, repositoryWithDirChan <-chan RepositoryWithDir, errChan chan<- error) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case repo, ok := <-repositoryWithDirChan:
-			if !ok {
+func cloneOrPullWorker(ctx context.Context, repositoryWithDirChan <-chan RepositoryWithDir, errChan chan<- error, stats *RunStats) {
+	// Important: we intentionally do NOT stop the worker on ctx cancellation.
+	// For graceful SIGINT handling we want to stop producing new work, close the
+	// channel, and let workers finish whatever is already queued/in-flight.
+	for repo := range repositoryWithDirChan {
 		// fmt.Printf("Received repo %s, processing\n", repo.Repository.GetName())
+
+		markDone := func(s *RunStats, ok bool, canceled bool) {
+			if s == nil {
 				return
 			}
-
-			fmt.Printf("Received repo %s, processing\n", repo.Repository.GetName())
-
-			if err := os.MkdirAll(filepath.Dir(repo.Directory), 0755); err != nil {
-				if errChan != nil {
-					errChan <- fmt.Errorf("creating parent dir for %q: %w", repo.Directory, err)
-				}
-				continue
+			s.Completed.Add(1)
+			if ok {
+				s.Succeeded.Add(1)
+				return
 			}
-
-			gitDir := filepath.Join(repo.Directory, ".git")
-			info, statErr := os.Stat(gitDir)
-			hasGitDir := statErr == nil && info.IsDir()
-
-			if !hasGitDir {
-				if statErr != nil && !os.IsNotExist(statErr) {
-					if errChan != nil {
-						errChan <- fmt.Errorf("stat %q: %w", gitDir, statErr)
-					}
-					continue
-				}
-
-				if err := cloneRepository(ctx, repo.Repository, repo.Directory); err != nil {
-					if errChan != nil {
-						errChan <- err
-					}
-				}
-				continue
+			if canceled {
+				s.Canceled.Add(1)
+				return
 			}
+			s.Failed.Add(1)
+		}
 
-			if err := pullRepository(ctx, repo.Directory); err != nil {
-				if errChan != nil {
-					errChan <- err
-				}
+		if err := os.MkdirAll(filepath.Dir(repo.Directory), 0755); err != nil {
+			if errChan != nil {
+				errChan <- fmt.Errorf("creating parent dir for %q: %w", repo.Directory, err)
+			}
+			markDone(stats, false, false)
+			if repo.OwnerStats != nil && repo.OwnerStats != stats {
+				markDone(repo.OwnerStats, false, false)
+			}
+			continue
+		}
+
+		gitDir := filepath.Join(repo.Directory, ".git")
+		info, statErr := os.Stat(gitDir)
+		hasGitDir := statErr == nil && info.IsDir()
+
+		apply := func(f func(s *RunStats)) {
+			if stats != nil {
+				f(stats)
+			}
+			if repo.OwnerStats != nil && repo.OwnerStats != stats {
+				f(repo.OwnerStats)
 			}
 		}
+
+		if !hasGitDir {
+			if statErr != nil && !os.IsNotExist(statErr) {
+				if errChan != nil {
+					errChan <- fmt.Errorf("stat %q: %w", gitDir, statErr)
+				}
+				apply(func(s *RunStats) { markDone(s, false, false) })
+				continue
+			}
+
+			err := cloneRepository(ctx, repo.Repository, repo.Directory)
+			if err != nil {
+				canceled := ctx.Err() != nil
+				if !canceled && errChan != nil {
+					errChan <- err
+				}
+				apply(func(s *RunStats) { markDone(s, false, canceled) })
+				continue
+			}
+
+			apply(func(s *RunStats) { s.Cloned.Add(1) })
+			apply(func(s *RunStats) { markDone(s, true, false) })
+			continue
+		}
+
+		err := pullRepository(ctx, repo.Directory)
+		if err != nil {
+			canceled := ctx.Err() != nil
+			if !canceled && errChan != nil {
+				errChan <- err
+			}
+			apply(func(s *RunStats) { markDone(s, false, canceled) })
+			continue
+		}
+
+		apply(func(s *RunStats) { s.Pulled.Add(1) })
+		apply(func(s *RunStats) { markDone(s, true, false) })
 	}
 }
 
@@ -657,53 +723,93 @@ func processCloneFile(cloneFile string) (map[string]CloneConfig, error) {
 	return nil, err // ?
 }
 
-func retrieveRepositoriesFromForgeUrl(forge string, user string, url string, a_token, srhtToken string) ([]Repository, error) {
+func retrieveRepositoriesFromForgeUrl(ctx context.Context, forge string, user string, url string, a_token, srhtToken string) ([]Repository, error) {
 	var collectedRepositories []Repository
 	switch {
 	case forge == "github":
-		repositories, err := collectGitHubRepositories(url, a_token)
+		repositories, err := collectGitHubRepositories(ctx, url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting GitHub repositories: %v\n", err)
+			return nil, fmt.Errorf("collecting GitHub repositories: %w", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
-
 		}
 	case forge == "gitlab":
-		repositories, err := collectGitLabRepositories(url, a_token)
+		repositories, err := collectGitLabRepositories(ctx, url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting GitLab repositories: %v\n", err)
+			return nil, fmt.Errorf("collecting GitLab repositories: %w", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
 		}
 	case forge == "gitea":
-		repositories, err := collectGiteaRepositories(url, a_token)
+		repositories, err := collectGiteaRepositories(ctx, url, a_token)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting Gitea repositories: %v\n", err)
+			return nil, fmt.Errorf("collecting Gitea repositories: %w", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
 		}
 	case forge == "sourcehut" && srhtToken != "":
-		repositories, err := collectSourceHutGitRepositories(user, srhtToken)
+		repositories, err := collectSourceHutGitRepositories(ctx, user, srhtToken)
 		if err != nil {
-			return nil, fmt.Errorf("Error collecting SourceHut repositories: %v\n", err)
+			return nil, fmt.Errorf("collecting SourceHut repositories: %w", err)
 		}
 		for _, repo := range repositories {
 			collectedRepositories = append(collectedRepositories, repo)
 		}
+	default:
+		return nil, fmt.Errorf("unsupported forge: %q", forge)
 	}
 	return collectedRepositories, nil
 }
 
-func cloneOrPullRepositoryList(ctx context.Context, collectedRepositories []Repository, forge string, rootDir string, dirToAppend string, repositoryWithDirChan chan<- RepositoryWithDir, ignoreForks bool, starsGreater uint, errChan chan<- error) {
-	repositoriesFetched := 0
+func cloneOrPullRepositoryList(ctx context.Context, collectedRepositories []Repository, forge string, rootDir string, dirToAppend string, repositoryWithDirChan chan<- RepositoryWithDir, ignoreForks bool, starsGreater uint, errChan chan<- error, stats *RunStats, ownerKey string, ownerStats *RunStats) {
+	eligibleTotal := 0
 	for _, repository := range collectedRepositories {
 		if ignoreForks && repository.IsFork() {
 			continue
 		}
 		if repository.GetStarCount() < starsGreater {
+			continue
+		}
+		eligibleTotal++
+	}
+
+	repositoriesFetched := 0
+	defer func() {
+		if ctx.Err() == nil {
+			return
+		}
+		missing := eligibleTotal - repositoriesFetched
+		if missing <= 0 {
+			return
+		}
+		if stats != nil {
+			stats.NotQueued.Add(uint64(missing))
+		}
+		if ownerStats != nil && ownerStats != stats {
+			ownerStats.NotQueued.Add(uint64(missing))
+		}
+	}()
+
+	for _, repository := range collectedRepositories {
+		if ignoreForks && repository.IsFork() {
+			if stats != nil {
+				stats.SkippedForks.Add(1)
+			}
+			if ownerStats != nil && ownerStats != stats {
+				ownerStats.SkippedForks.Add(1)
+			}
+			continue
+		}
+		if repository.GetStarCount() < starsGreater {
+			if stats != nil {
+				stats.SkippedStars.Add(1)
+			}
+			if ownerStats != nil && ownerStats != stats {
+				ownerStats.SkippedStars.Add(1)
+			}
 			continue
 		}
 
@@ -718,16 +824,21 @@ func cloneOrPullRepositoryList(ctx context.Context, collectedRepositories []Repo
 			return
 		}
 
-		fmt.Printf("Sending repository %s with dir %s\n", repository.GetName(), repoDir)
 		// fmt.Printf("Sending repository %s with dir %s\n", repository.GetName(), repoDir)
 		select {
 		case <-ctx.Done():
 			return
-		case repositoryWithDirChan <- RepositoryWithDir{Repository: repository, Directory: repoDir}:
+		case repositoryWithDirChan <- RepositoryWithDir{Repository: repository, Directory: repoDir, OwnerKey: ownerKey, OwnerStats: ownerStats}:
 			repositoriesFetched++
+			if stats != nil {
+				stats.Queued.Add(1)
+			}
+			if ownerStats != nil && ownerStats != stats {
+				ownerStats.Queued.Add(1)
+			}
 		}
 	}
-	fmt.Printf("Finished fetching %d repos to %s\n", repositoriesFetched, dirToAppend)
+	fmt.Printf("Finished processing %d repos to %s\n", repositoriesFetched, dirToAppend)
 }
 
 func handleOptionErrors(forge string, user string, organisation string, token string, cloneFile string) {
@@ -761,6 +872,7 @@ func handleOptionErrors(forge string, user string, organisation string, token st
 
 // * main()
 func main() {
+	startedAt := time.Now()
 	flag.Parse()
 	user := *g_user
 	forge := *g_forge
@@ -773,8 +885,28 @@ func main() {
 	goroutines := *g_goroutines
 	cloneFile := *g_cloneFile
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	enqueueCtx, cancelEnqueue := context.WithCancel(context.Background())
+	defer cancelEnqueue()
+
+	gitCtx, cancelGit := context.WithCancel(context.Background())
+	defer cancelGit()
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	var gotSignal atomic.Bool
+	go func() {
+		sig := <-sigCh
+		gotSignal.Store(true)
+		log.Printf("Received %v: stopping new work; waiting for current operations to finish...", sig)
+		cancelEnqueue()
+
+		// If the user hits Ctrl+C again, force-cancel git operations.
+		sig = <-sigCh
+		log.Printf("Received %v again: forcing shutdown...", sig)
+		cancelGit()
+	}()
 
 	handleOptionErrors(forge, user, organisation, srhtToken, cloneFile)
 
@@ -787,6 +919,19 @@ func main() {
 
 	repositoryWithDirChan := make(chan RepositoryWithDir, 128)
 	errChan := make(chan error, 128)
+	stats := &RunStats{}
+
+	ownerStatsByKey := map[string]*RunStats{}
+	ownerKeys := make([]string, 0, 8)
+	getOwnerStats := func(key string) *RunStats {
+		if s, ok := ownerStatsByKey[key]; ok {
+			return s
+		}
+		s := &RunStats{}
+		ownerStatsByKey[key] = s
+		ownerKeys = append(ownerKeys, key)
+		return s
+	}
 
 	var hadErr atomic.Bool
 	var errWg sync.WaitGroup
@@ -794,15 +939,25 @@ func main() {
 	go func() {
 		defer errWg.Done()
 		for err := range errChan {
+			// Cancellation can be part of a forced shutdown; don't count it as a failure.
+			if errors.Is(err, context.Canceled) {
+				log.Printf("Canceled: %v", err)
+				continue
+			}
+
 			hadErr.Store(true)
-			log.Printf("Error: %v", err)
+			stats.ErrorsLogged.Add(1)
+			// Avoid spamming the console if many repos fail.
+			if stats.ErrorsLogged.Load() <= 20 {
+				log.Printf("Error: %v", err)
+			}
 		}
 	}()
 
 	var wg sync.WaitGroup
 	for i := uint(0); i < goroutines; i++ {
 		wg.Go(func() {
-			cloneOrPullWorker(ctx, repositoryWithDirChan, errChan)
+			cloneOrPullWorker(gitCtx, repositoryWithDirChan, errChan, stats)
 		})
 	}
 
@@ -818,8 +973,21 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error processing clone file: %v", err)
 		}
+
+		// Graceful shutdown: once enqueueCtx is canceled, stop iterating.
 		for forge := range cloneConfigMap {
+			if enqueueCtx.Err() != nil {
+				break
+			}
+
 			for _, u := range cloneConfigMap[forge].Users {
+				if enqueueCtx.Err() != nil {
+					break
+				}
+
+				ownerKey := fmt.Sprintf("%s/user:%s", forge, u.Name)
+				ownerStats := getOwnerStats(ownerKey)
+
 				fmt.Printf("Processing user %s from forge %s\n", u.Name, forge)
 				url, dirToAppend, err := retrieveReposUrlFromUser(forge, u.Name, u.InstanceUrl)
 				if err != nil {
@@ -827,53 +995,95 @@ func main() {
 				}
 				mkdirBase(forge, dirToAppend)
 
-				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, u.Name, url, u.Token, srhtToken)
+				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(enqueueCtx, forge, u.Name, url, u.Token, srhtToken)
 				if err != nil {
+					if enqueueCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						log.Printf("Interrupted while listing repositories for %s/%s", forge, u.Name)
+						break
+					}
 					log.Fatalf("Error processing Forge URL %s: %v", url, err)
 				}
-				cloneOrPullRepositoryList(ctx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, u.IgnoreForks, u.StarsGreater, errChan)
+
+				stats.Listed.Add(uint64(len(collectedRepositories)))
+				ownerStats.Listed.Add(uint64(len(collectedRepositories)))
+				cloneOrPullRepositoryList(enqueueCtx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, u.IgnoreForks, u.StarsGreater, errChan, stats, ownerKey, ownerStats)
 			}
 
 			for _, org := range cloneConfigMap[forge].Organisations {
+				if enqueueCtx.Err() != nil {
+					break
+				}
+
 				url, dirToAppend, err := retrieveReposUrlFromOrganisation(forge, org.Name, org.InstanceUrl)
 				if err != nil {
 					log.Fatalf("Error processing organisation: %v", err)
 				}
 				mkdirBase(forge, dirToAppend)
 
-				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, org.Name, url, org.Token, srhtToken)
+				ownerKey := fmt.Sprintf("%s/org:%s", forge, org.Name)
+				ownerStats := getOwnerStats(ownerKey)
+
+				collectedRepositories, err := retrieveRepositoriesFromForgeUrl(enqueueCtx, forge, org.Name, url, org.Token, srhtToken)
 				if err != nil {
+					if enqueueCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						log.Printf("Interrupted while listing repositories for %s/%s", forge, org.Name)
+						break
+					}
 					log.Fatalf("Error processing Forge URLs: %v", err)
 				}
-				cloneOrPullRepositoryList(ctx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, org.IgnoreForks, org.StarsGreater, errChan)
+				stats.Listed.Add(uint64(len(collectedRepositories)))
+				ownerStats.Listed.Add(uint64(len(collectedRepositories)))
+				cloneOrPullRepositoryList(enqueueCtx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, org.IgnoreForks, org.StarsGreater, errChan, stats, ownerKey, ownerStats)
 			}
 		}
 
 	case user != "":
-		url, dirToAppend, err := retrieveReposUrlFromUser(forge, user, instanceUrl)
-		if err != nil {
-			log.Fatalf("Error processing user %s: %v", user, err)
-		}
-		mkdirBase(forge, dirToAppend)
+		if enqueueCtx.Err() == nil {
+			url, dirToAppend, err := retrieveReposUrlFromUser(forge, user, instanceUrl)
+			if err != nil {
+				log.Fatalf("Error processing user %s: %v", user, err)
+			}
+			mkdirBase(forge, dirToAppend)
 
-		collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, user, url, "", srhtToken)
-		if err != nil {
-			log.Fatalf("Error retrieving repositories: %v", err)
+			ownerKey := fmt.Sprintf("%s/user:%s", forge, user)
+			ownerStats := getOwnerStats(ownerKey)
+
+			collectedRepositories, err := retrieveRepositoriesFromForgeUrl(enqueueCtx, forge, user, url, "", srhtToken)
+			if err != nil {
+				if enqueueCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					log.Printf("Interrupted while listing repositories for %s/%s", forge, user)
+					break
+				}
+				log.Fatalf("Error retrieving repositories: %v", err)
+			}
+			stats.Listed.Add(uint64(len(collectedRepositories)))
+			ownerStats.Listed.Add(uint64(len(collectedRepositories)))
+			cloneOrPullRepositoryList(enqueueCtx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater, errChan, stats, ownerKey, ownerStats)
 		}
-		cloneOrPullRepositoryList(ctx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater, errChan)
 
 	case organisation != "":
-		url, dirToAppend, err := retrieveReposUrlFromOrganisation(forge, organisation, instanceUrl)
-		if err != nil {
-			log.Fatalf("Error processing organisation: %v", err)
-		}
-		mkdirBase(forge, dirToAppend)
+		if enqueueCtx.Err() == nil {
+			url, dirToAppend, err := retrieveReposUrlFromOrganisation(forge, organisation, instanceUrl)
+			if err != nil {
+				log.Fatalf("Error processing organisation: %v", err)
+			}
+			mkdirBase(forge, dirToAppend)
 
-		collectedRepositories, err := retrieveRepositoriesFromForgeUrl(forge, organisation, url, "", srhtToken)
-		if err != nil {
-			log.Fatalf("Error retrieving repositories: %v", err)
+			ownerKey := fmt.Sprintf("%s/org:%s", forge, organisation)
+			ownerStats := getOwnerStats(ownerKey)
+
+			collectedRepositories, err := retrieveRepositoriesFromForgeUrl(enqueueCtx, forge, organisation, url, "", srhtToken)
+			if err != nil {
+				if enqueueCtx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					log.Printf("Interrupted while listing repositories for %s/%s", forge, organisation)
+					break
+				}
+				log.Fatalf("Error retrieving repositories: %v", err)
+			}
+			stats.Listed.Add(uint64(len(collectedRepositories)))
+			ownerStats.Listed.Add(uint64(len(collectedRepositories)))
+			cloneOrPullRepositoryList(enqueueCtx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater, errChan, stats, ownerKey, ownerStats)
 		}
-		cloneOrPullRepositoryList(ctx, collectedRepositories, forge, rootDir, dirToAppend, repositoryWithDirChan, ignoreForks, starsGreater, errChan)
 	}
 
 	close(repositoryWithDirChan)
@@ -882,10 +1092,103 @@ func main() {
 	close(errChan)
 	errWg.Wait()
 
+	elapsed := time.Since(startedAt).Round(10 * time.Millisecond)
+
+	listed := stats.Listed.Load()
+	queued := stats.Queued.Load()
+	notQueued := stats.NotQueued.Load()
+	completed := stats.Completed.Load()
+	succeeded := stats.Succeeded.Load()
+	failed := stats.Failed.Load()
+	canceled := stats.Canceled.Load()
+	cloned := stats.Cloned.Load()
+	pulled := stats.Pulled.Load()
+	skippedForks := stats.SkippedForks.Load()
+	skippedStars := stats.SkippedStars.Load()
+	errorsLogged := stats.ErrorsLogged.Load()
+
+	remaining := uint64(0)
+	if queued > completed {
+		remaining = queued - completed
+	}
+
+	mode := "completed"
+	if gotSignal.Load() {
+		mode = "interrupted"
+	}
+
+	log.Printf(
+		"Run %s in %s. Repos: listed=%d queued=%d notQueued=%d skipped(forks=%d, stars=%d) processed=%d (ok=%d failed=%d canceled=%d) actions(clone=%d pull=%d) pending=%d errorsLogged=%d",
+		mode,
+		elapsed,
+		listed,
+		queued,
+		notQueued,
+		skippedForks,
+		skippedStars,
+		completed,
+		succeeded,
+		failed,
+		canceled,
+		cloned,
+		pulled,
+		remaining,
+		errorsLogged,
+	)
+
+	if gotSignal.Load() {
+		log.Printf("Graceful shutdown: stopped queueing on SIGINT/SIGTERM and waited for workers to finish.")
+	}
+
+	if len(ownerKeys) > 0 {
+		sort.Strings(ownerKeys)
+		log.Printf("Per-owner breakdown:")
+		for _, k := range ownerKeys {
+			s := ownerStatsByKey[k]
+			if s == nil {
+				continue
+			}
+
+			kListed := s.Listed.Load()
+			kQueued := s.Queued.Load()
+			kNotQueued := s.NotQueued.Load()
+			kCompleted := s.Completed.Load()
+			kSucceeded := s.Succeeded.Load()
+			kFailed := s.Failed.Load()
+			kCanceled := s.Canceled.Load()
+			kCloned := s.Cloned.Load()
+			kPulled := s.Pulled.Load()
+			kSkippedForks := s.SkippedForks.Load()
+			kSkippedStars := s.SkippedStars.Load()
+
+			kPending := uint64(0)
+			if kQueued > kCompleted {
+				kPending = kQueued - kCompleted
+			}
+
+			log.Printf(
+				"  %s: listed=%d queued=%d notQueued=%d skipped(forks=%d, stars=%d) processed=%d (ok=%d failed=%d canceled=%d) actions(clone=%d pull=%d) pending=%d",
+				k,
+				kListed,
+				kQueued,
+				kNotQueued,
+				kSkippedForks,
+				kSkippedStars,
+				kCompleted,
+				kSucceeded,
+				kFailed,
+				kCanceled,
+				kCloned,
+				kPulled,
+				kPending,
+			)
+		}
+	}
+
 	if hadErr.Load() {
 		os.Exit(1)
 	}
-	if ctx.Err() != nil {
+	if gotSignal.Load() {
 		os.Exit(130)
 	}
 }
