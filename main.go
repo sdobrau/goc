@@ -518,6 +518,7 @@ func cloneOrPullWorker(ctx context.Context, repositoryWithDirChan <-chan Reposit
 			return
 		case repo, ok := <-repositoryWithDirChan:
 			if !ok {
+		// fmt.Printf("Received repo %s, processing\n", repo.Repository.GetName())
 				return
 			}
 
@@ -718,6 +719,7 @@ func cloneOrPullRepositoryList(ctx context.Context, collectedRepositories []Repo
 		}
 
 		fmt.Printf("Sending repository %s with dir %s\n", repository.GetName(), repoDir)
+		// fmt.Printf("Sending repository %s with dir %s\n", repository.GetName(), repoDir)
 		select {
 		case <-ctx.Done():
 			return
